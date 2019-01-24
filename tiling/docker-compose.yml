@@ -3,7 +3,7 @@ services:
   tprn:
     build: .
     environment:
-      - "DATA_IN_DIR=${DATA_OUT_DIR:-inputs}"
+      - "DATA_IN_DIR=${DATA_IN_DIR:-inputs}"
       - "DATA_OUT_DIR=${DATA_OUT_DIR:-outputs}"
       - ZOONIVERSE_USERNAME=$ZOONIVERSE_USERNAME
       - ZOONIVERSE_PASSWORD=$ZOONIVERSE_PASSWORD
