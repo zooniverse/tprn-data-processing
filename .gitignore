@@ -1,0 +1,4 @@
+.DS_Store
+event_manifest/outputs/*
+tiling/inputs/*
+tiling/outputs/*
