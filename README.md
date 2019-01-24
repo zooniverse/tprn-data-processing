@@ -1,6 +1,8 @@
 # tPRN-scripts
 Scripts to help build subjects and deploy Planetary Response Network (PRN) project through the Zooniverse platform.
 
+Heavily inspired by the work in https://github.com/vrooje/PRN-scripts
+
 # Get started
 
 Use docker-compse to run the code and attach your input data to the container
