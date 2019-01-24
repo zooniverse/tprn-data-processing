@@ -12,7 +12,7 @@ services:
       # - "DRY_UPLOAD=True"
     volumes:
       - "${TPRN_OUT_DATA_DIR:-./outputs}:/tprn_manifest/outputs"
-      - .:/tprn_manifest # remove this after dev, it's used to inject the latest code
+      # - .:/tprn_manifest # used for development work, mount the current code into the container
 
 volumes:
   outputs:
