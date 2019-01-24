@@ -6,8 +6,13 @@ Each manifest will contain information about the PRN activation event, specifica
 0. Zooniverse project metadata
 0. S3 bucket information for event data products
 
-### How to create a manifest?
-`python create_event_manifest.py` and answer the questions on the prompt, once it's finished the manifest is uploaded to s3 at a pre-defined location based on the name (choose wisely). This location will be reported at the end of the script run.
+### How to create an event manifest?
+
+From the `event_manifest` directory:
+
+1. `docker-compose run --rm tprn_manifest python create_event_manifest.py`
+
+0. Read and answer the questions on the prompt, once it's finished the manifest is uploaded to s3 at a pre-defined location based on the name (choose wisely). This location will be reported at the end of the script run.
 
 ### Example manifest
 ```

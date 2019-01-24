@@ -98,7 +98,7 @@ else:
 
     input_header("S3 bucket name and path details for this event")
     s3_bucket_name = input('Name of the s3 bucket to store data in? (default to planetary-response-network) ') or "planetary-response-network"
-    s3_bucket_path = input('Name of the s3 bucket path to store the PRN event data? ')
+    s3_bucket_path = input("Name of the s3 bucket path to store the PRN event data? (default to %s) " % event_name) or event_name
 
     data['s3_metadata'] = {
         "bucket_name": s3_bucket_name,
@@ -115,7 +115,13 @@ s3_upload_location = 's3://' + s3_bucket_name + '/manifests/' + event_name + '.j
 
 input_header('Upload the manifest to s3')
 try:
-    cmd = "aws s3 cp %s %s" % (json_manifest_file_path, s3_upload_location)
+    if bool(os.environ.get('DRY_UPLOAD', "False")):
+        s3_cp_cmd = "aws s3 cp --dryrun"
+    else:
+        s3_cp_cmd = "aws s3 cp"
+
+    cmd = "%s %s %s" % (s3_cp_cmd, json_manifest_file_path, s3_upload_location)
+
     p = Popen(cmd, shell=True, stdout=PIPE, stderr=PIPE)
     (out,err) = p.communicate()
 
