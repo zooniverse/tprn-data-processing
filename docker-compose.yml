@@ -1,0 +1,31 @@
+version: '3'
+services:
+  tprn:
+    build: .
+    environment:
+      - "DATA_IN_DIR=${DATA_OUT_DIR:-inputs}"
+      - "DATA_OUT_DIR=${DATA_OUT_DIR:-outputs}"
+      - ZOONIVERSE_USERNAME=$ZOONIVERSE_USERNAME
+      - ZOONIVERSE_PASSWORD=$ZOONIVERSE_PASSWORD
+      # - PANOPTES_DEBUG=true # remove this after dev
+      - "AWS_DEFAULT_REGION=${AWS_REGION:-us-east-1}"
+      - "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}"
+      - "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}"
+      - "AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}"
+      - "AWS_SECURITY_TOKEN=${AWS_SECURITY_TOKEN}"
+    volumes:
+      - "${TPRN_IN_DATA_DIR:-./inputs}:/tprn/inputs"
+      - "${TPRN_OUT_DATA_DIR:-./outputs}:/tprn/outputs"
+      - .:/tprn # remove this after dev, it's used to inject the latest code
+      - ${HOME}/.panoptes/:/root/.panoptes/ # IS THIS A USEFUL WAY TO GO?
+
+  tprn-conda-env-build:
+    build:
+      context: .
+      dockerfile: Dockerfile.conda.env.build
+    volumes:
+      - .:/tprn
+
+volumes:
+  inputs:
+  outputs:

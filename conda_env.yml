@@ -1,0 +1,49 @@
+name: py279
+channels:
+- conda-forge
+- OpenAstronomy
+- astropy
+- http://ssb.stsci.edu/astroconda
+- defaults
+dependencies:
+- freetype=2.5.5=0
+- gdal=2.1.0=py27_0
+- geos=3.5.0=0
+- geotiff=1.4.1=0
+- html5lib=0.999=py27_0
+- imagesize=0.7.1=py27_0
+- ipython=5.2.2=py27_0
+- jpeg=9b=0
+- libgcc=4.8.5=1
+- libgdal=2.1.0=0
+- libiconv=1.14=0
+- libnetcdf=4.4.1=1
+- libpng=1.6.17=0
+- libtiff=4.0.6=3
+- libxml2=2.9.4=0
+- libxslt=1.1.29=0
+- numpy=1.11.0=py27_0
+- numpydoc=0.6.0=py27_0
+- openssl=1.0.2g=0
+- pandas=0.19.2=np111py27_1
+- pickleshare=0.7.4=py27_0
+- pillow=4.0.0=py27_1
+- pip=8.1.1=py27_0
+- plotly=1.12.9=py27_0
+- proj4=4.9.2=0
+- pyproj=1.9.5.1=py27_0
+- pytest=3.0.5=py27_0
+- python=2.7.11=0
+- setuptools=20.3=py27_0
+- ujson=1.35=py27_0
+- pip:
+  - backports-abc==0.5
+  - backports.shutil-get-terminal-size==1.0.0
+  - backports.ssl-match-hostname==3.4.0.2
+  - htc-utils==0.1
+  - ipython-genutils==0.1.0
+  - jupyter-client==4.4.0
+  - jupyter-core==4.3.0
+  - prompt-toolkit==1.0.9
+  - purge-path==1.0.0
+prefix: /Users/vrooje/anaconda/envs/py279
