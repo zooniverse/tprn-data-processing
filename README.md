@@ -67,16 +67,3 @@ Note: most likely not needed right now
 + `docker-compose build tprn-conda-env-build`
 + `docker-compose run --rm tprn-conda-env-build bash`
 + `conda env export > conda_env/tprn.yml`
-
-
-## TODO
-
-Keep following the steps outlined in https://docs.google.com/document/d/1QveOh74QpxEIhxx--7t9Swahe2BmG5yBBtqhSRtLLUk/edit#
-
-1. look at adding in blank image cuts (use file size as a proxy) while creating the subject manifest (heuristics via file size should work)
-0. Fix year in source metadata citations
-
-Classification data export to IBCC format
-1. Expand on work by Sam Aroney in https://github.com/AroneyS/prn_data_extract
-0. Generalise the constants in code using the aggregation yaml directives
-0. Make it run under this docker image?
