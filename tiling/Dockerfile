@@ -26,7 +26,5 @@ ENV PATH /opt/conda/envs/tprn/bin:$PATH
 RUN pip install --upgrade pip
 # switch to the released client >= v1.0.4 is available
 RUN pip install -U git+git://github.com/zooniverse/panoptes-python-client.git
-RUN pip install -U awscli
-
 
 ADD ./ /tprn
