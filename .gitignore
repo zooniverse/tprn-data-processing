@@ -2,3 +2,6 @@
 event_manifest/outputs/*
 tiling/inputs/*
 tiling/outputs/*
+event_manifest/outputs/*
+data_conversion/inputs/*
+data_conversion/outputs/*
