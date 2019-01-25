@@ -11,3 +11,5 @@ This repository is responsible for different parts of the tPRN data pipeline lif
 
 +  [Tiling](tiling/) for details on tiling pre and post event imagery as Zooniverse Subjects
     + You will have to provide the source before and after event imagery. This is manually created (currently), see the followin document for details https://docs.google.com/document/d/1QveOh74QpxEIhxx--7t9Swahe2BmG5yBBtqhSRtLLUk
+
++ [Data Conversion](data_conversion/) for details on extracting the classification data into a useable format for IBCC / downstream collaborators in the PRN data pipeline.
