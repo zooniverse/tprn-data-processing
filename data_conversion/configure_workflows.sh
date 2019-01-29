@@ -15,5 +15,7 @@ mkdir -p $CONFIG_DIR
 for workflow_id in "${workflow_ids[@]}"
 do
   # we can add workflow major / minor version numbers here if needed
+  # NOTE if you don't supply a version number it defaults to the max version
+  # found in the supplied workflows.csv, we may have to change this behaviour
  panoptes_aggregation config ${WORKFLOW_FILE} $workflow_id -c ${WORKFLOW_CONTENTS_FILE} -d $CONFIG_DIR
 done
