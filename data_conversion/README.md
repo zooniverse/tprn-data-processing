@@ -4,8 +4,6 @@ https://github.com/zooniverse/aggregation-for-caesar
 
 For each resulting marking task(s) extracts file we need to convert the pixel coords to geo referenced lat / lon coordinates.
 
-https://github.com/AroneyS/prn_data_extract
-
 ### How to
 
 Firstly assemble the files you need:
@@ -22,7 +20,5 @@ For detail on the scripts, see https://aggregation-caesar.zooniverse.org/Scripts
 1. Verify the install works
     + `docker-compose run --rm tprn_data panoptes_aggregation -h`
 
-0. Configure the extractors for each workflow on the project
-    + `docker-compose run --rm tprn_data panoptes_aggregation config inputs/workflows.csv -c inputs/workflow_contents.csv`
-
-0. Run the extractors for the desired configs
+0. Configure and extract the classification data for each workflow in the workflows.csv file
+    + `docker-compose run --rm tprn_data ./extract_workflows_data.sh inputs/workflows.csv inputs/workflow_contents.csv`
