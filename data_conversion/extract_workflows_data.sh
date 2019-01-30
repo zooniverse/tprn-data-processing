@@ -37,4 +37,5 @@ do
 
   # TODO: now convert each marking task has to have the point data converted to lat / lon
   # https://github.com/AroneyS/prn_data_extract
+  # python convert_to_ibcc.py outputs/point_extractor_by_frame_workflow_4970.csv outputs/question_extractor_workflow_4970.csv inputs/subjects.csv test_cam_run
 done
