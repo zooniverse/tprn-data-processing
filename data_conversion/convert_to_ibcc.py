@@ -82,6 +82,12 @@ def get_coords_mark(markinfo):
     mark_x = [float(i) for i in markinfo['x']]
     mark_y = [float(i) for i in markinfo['y']]
 
+    # TODO: look at how we can use other information to determine the
+    # lat / lon extents for use t determine the lat / lon from pixel coords
+    # attempt to use corner lat lon_max
+    # https://github.com/vrooje/Data-digging/blob/1eece78c0f4dfc6b700e3f631d37681b6a8b7bf6/example_scripts/planetary_response_network/caribbean_irma_2017/extract_markings_to1file.py#L242
+    # OR conform to what metadata we will use going forward, see the tiling convert_tiles_to_jpg.py
+
     the_x = np.array([markinfo['x_min'], markinfo['imsize_x_pix']], dtype=float)
     the_y = np.array([markinfo['y_min'], markinfo['imsize_y_pix']], dtype=float)
     the_lon = np.array([markinfo['lon_min'], markinfo['lon_max']], dtype=float)
@@ -105,8 +111,9 @@ base_columns = ['classification_id', 'user_name', 'user_id', 'workflow_id', 'tas
 
 
 print('Loading the subject data')
-# Make subject dictionary with id as key and metadata
 subjects_dict = {}
+# Make subject dictionary with id as key and metadata
+# keep ram down use cols of interest and chunks
 chunksize = 10 ** 6
 for subjects_chunk in pd.read_csv(metafile, usecols=['subject_id', 'metadata'], chunksize=chunksize):
     for index, row in subjects_chunk.iterrows():
@@ -198,9 +205,7 @@ for i, row in classifications_points.iterrows():
 
     if i % 100 == 0:
         print('Points done: ' + f"{i:,d}", end='\r')
-    #if i > 1000:
-    #    break
-
+pdb.set_trace()
 print('Points done: ' + f"{i:,d}")
 points_outfile = pd.DataFrame(points_temp, columns=column_points)
 filename = 'data_points_' + str(suffix) + '.csv'
