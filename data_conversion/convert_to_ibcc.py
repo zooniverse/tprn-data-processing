@@ -1,4 +1,4 @@
-import sys, os
+import sys, os, argparse, time
 import numpy as np
 import pandas as pd
 import ujson
@@ -16,8 +16,11 @@ selections converted to longitude/latitude from subject metadata (via Brooke's c
 1. Extract data as per https://aggregation-caesar.zooniverse.org/Scripts.html#extracting-data
 
 2. Run
-    python3 cleanup_workflow_output.py point_extractor_by_frame_example.csv
-            question_extractor_example.csv subjects_metadata_file.csv test
+    python convert_to_ibcc.py \
+      --points outputs/point_extractor_by_frame_workflow_4970.csv \
+      --questions outputs/question_extractor_workflow_4970.csv \
+      --subjects inputs/subjects.csv
+      --output-suffix 'identifier-file-suffix'
 
 - Where 'point_extractor_by_frame_example.csv' and 'question_extractor_example.csv' are outputs from 1
 - And 'subjects_metadata_file.csv' is the metadata of the subjects (images),
@@ -56,26 +59,21 @@ containing edge longitude and lattitude and image size
 
 # TODO: convert these to use parse args or something like it
 # avoid the defaults, force the user to supply valid values
-try:
-    pointfile = sys.argv[1]
-except:
-    pointfile = "point_extractor_by_frame_example.csv"
 
-try:
-    questionfile = sys.argv[2]
-except:
-    questionfile = "question_extractor_example.csv"
+default_suffix = time.strftime("%Y%m%d-%H%M%S")
 
-try:
-    metafile = sys.argv[3]
-except:
-    metafile = "test_data/planetary-response-network-and-rescue-global-caribbean-storms-2017-subjects.csv"
+parser = argparse.ArgumentParser(description='Convert extracted data point task annotations to lat / lon format')
+parser.add_argument('--points', help='the file containing the extracted point annotations', required=True)
+parser.add_argument('--questions', help='the file containing the extracted question annotations', required=True)
+parser.add_argument('--subjects', help='the subjects export file containing subject metadata', required=True)
+parser.add_argument('--output-suffix', dest='output_suffix', help='a suffix to add to each output file before the extension', default=default_suffix)
 
-try:
-    suffix = sys.argv[4]
-except:
-    suffix = 'test'
+args = parser.parse_args()
 
+point_annotations_file = args.points
+question_annotations_file = args.questions
+subjects_metadata_file = args.subjects
+output_file_suffix = args.output_suffix
 
 def get_coords_mark(markinfo):
 
@@ -102,7 +100,7 @@ def get_coords_mark(markinfo):
 
 ## Classify point questions
 print('Loading point classifications')
-classifications_points = pd.read_csv(pointfile)
+classifications_points = pd.read_csv(point_annotations_file)
 column_names = classifications_points.columns.values.tolist()
 # classification_id,user_name,user_id,workflow_id,task,created_at,subject_id,extractor,data.aggregation_version,
 # data.frame{1/0}.T0_tool{3/2/1/0}_{x/y/details} (x18)
@@ -115,7 +113,7 @@ subjects_dict = {}
 # Make subject dictionary with id as key and metadata
 # keep ram down use cols of interest and chunks
 chunksize = 10 ** 6
-for subjects_chunk in pd.read_csv(metafile, usecols=['subject_id', 'metadata'], chunksize=chunksize):
+for subjects_chunk in pd.read_csv(subjects_metadata_file, usecols=['subject_id', 'metadata'], chunksize=chunksize):
     for index, row in subjects_chunk.iterrows():
         subjects_dict[row['subject_id']] = ujson.loads(row['metadata'])
 print('Files loaded successfully')
@@ -132,6 +130,7 @@ for i, row in classifications_points.iterrows():
     markinfo = subjects_dict[subject_id]
     markinfo['x_min'] = 1 #np.ones_like(markinfo['x'])
     markinfo['y_min'] = 1 #np.ones_like(markinfo['y'])
+
 
     # TODO: these tools need to come from the relevant config file
     # in this case they can come from the Extractor_config_workflow_* and Task_labels_workflow_*
@@ -208,14 +207,14 @@ for i, row in classifications_points.iterrows():
 pdb.set_trace()
 print('Points done: ' + f"{i:,d}")
 points_outfile = pd.DataFrame(points_temp, columns=column_points)
-filename = 'data_points_' + str(suffix) + '.csv'
+filename = 'data_points_' + str(output_file_suffix) + '.csv'
 points_outfile[points_included_cols].to_csv(filename, index=False)
 print(filename + ' file created successfully')
 
 ## Classify questions, shortcuts and non-answers
 print('Beginning questions, shortcuts and blanks classifications')
 
-classifications_questions = pd.read_csv(questionfile)
+classifications_questions = pd.read_csv(question_annotations_file)
 column_names = classifications_questions.columns.values.tolist()
 # classification_id,user_name,user_id,workflow_id,task,created_at,subject_id,extractor,data.10-to-30,data.None,data.aggregation_version,data.more-than-30,data.none,data.ocean-only-no-land,data.unclassifiable-image,data.up-to-10
 base_columns = ['classification_id', 'user_name', 'user_id', 'workflow_id', 'task',
@@ -303,17 +302,17 @@ for i, row in classifications_questions.iterrows():
 print('Questions done: ' + f"{i:,d}")
 
 questions_outfile = pd.DataFrame(questions_temp, columns=column_questions)
-filename = 'data_questions_' + str(suffix) + '.csv'
+filename = 'data_questions_' + str(output_file_suffix) + '.csv'
 questions_outfile[questions_included_cols].to_csv(filename, index=False)
 print(filename + ' file created successfully')
 
 shortcuts_outfile = pd.DataFrame(shortcuts_temp, columns=column_shortcuts)
-filename = 'data_shortcuts_' + str(suffix) + '.csv'
+filename = 'data_shortcuts_' + str(output_file_suffix) + '.csv'
 shortcuts_outfile[shortcuts_included_cols].to_csv(filename, index=False)
 print(filename + ' file created successfully')
 
 blanks_outfile = pd.DataFrame(blanks_temp, columns=column_blanks)
-filename = 'data_blanks_' + str(suffix) + '.csv'
+filename = 'data_blanks_' + str(output_file_suffix) + '.csv'
 questions_outfile[blanks_included_cols].to_csv(filename, index=False)
 print(filename + ' file created successfully')
 print('Fin')
