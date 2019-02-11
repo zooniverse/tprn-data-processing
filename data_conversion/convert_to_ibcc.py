@@ -2,6 +2,8 @@ import sys, os, argparse, time
 import numpy as np
 import pandas as pd
 import ujson
+import yaml
+import re
 from scipy.interpolate import interp1d
 import scipy.ndimage
 from ast import literal_eval
@@ -71,6 +73,7 @@ parser = argparse.ArgumentParser(description='Convert extracted data point task 
 parser.add_argument('--points', help='the file containing the extracted point annotations', required=True)
 parser.add_argument('--questions', help='the file containing the extracted question annotations', required=True)
 parser.add_argument('--subjects', help='the subjects export file containing subject metadata', required=True)
+parser.add_argument('--task-labels', dest='task_labels', help='the file containing the workflow version task labels', required=True)
 parser.add_argument('--output-suffix', dest='output_suffix', help='a suffix to add to each output file before the extension', default=default_suffix)
 
 args = parser.parse_args()
@@ -78,6 +81,7 @@ args = parser.parse_args()
 point_annotations_file = args.points
 question_annotations_file = args.questions
 subjects_metadata_file = args.subjects
+task_labels_file = args.task_labels
 output_file_suffix = args.output_suffix
 
 def get_lat_lon_coords_from_pixels(markinfo):
@@ -106,6 +110,28 @@ def get_lat_lon_coords_from_pixels(markinfo):
 
     return f_x_lon(mark_x), f_y_lat(mark_y)
 
+# find the list of tool nums and labels e.g.
+# [(0, 'blockages'), (1, 'floods'), (2, 'shelters'), (3, 'damage')]
+def get_row_point_task_details(col_headers, known_task_labels):
+    point_task_details = []
+    # thought, maybe these can be generated using point_extractor_by_frame config files?
+
+    # looking for headers that match the data.frame0.T0_tool0_x format
+    # only take the x values to avoid double listing
+    point_lable_re = re.compile('\Adata\.frame0.(T\d)_tool(\d)_x', re.IGNORECASE)
+
+    for header in col_headers:
+        matchObj = point_lable_re.match(header)
+        if matchObj:
+            task_key = matchObj.group(1)
+            tool_num = matchObj.group(2)
+            label_lookup_key = "%s.tools.%s.label" % (task_key, tool_num)
+            known_task_labels[label_lookup_key]
+            tool_num_name_tuple = (tool_num, known_task_labels[label_lookup_key])
+
+            point_task_details.append(tool_num_name_tuple)
+
+    return point_task_details
 
 ## Classify point questions
 print('Loading point classifications')
@@ -116,6 +142,11 @@ column_names = classifications_points.columns.values.tolist()
 base_columns = ['classification_id', 'user_name', 'user_id', 'workflow_id', 'task', 'created_at',
                 'subject_id', 'extractor','data.aggregation_version']
 
+# Load up the task labels data from aggregation config
+print('Loading the task labels file')
+task_labels_dict = {}
+with open(task_labels_file) as f:
+    task_labels_dict = yaml.safe_load(f)
 
 # Target for optimization here, projects with lots of subjects will make this slow
 # for each extraction run, either subset out the data for target classifications
@@ -128,6 +159,7 @@ chunksize = 10 ** 6
 for subjects_chunk in pd.read_csv(subjects_metadata_file, usecols=['subject_id', 'metadata'], chunksize=chunksize):
     for index, row in subjects_chunk.iterrows():
         subjects_dict[row['subject_id']] = ujson.loads(row['metadata'])
+
 print('Files loaded successfully')
 
 print('Converting marking tasks to lat / lon format')
@@ -145,21 +177,8 @@ for i, row in classifications_points.iterrows():
     markinfo['y_min'] = 1 #np.ones_like(markinfo['y'])
 
     try:
-        # TODO: these tools need to come from the relevant config file
-        # in this case they can come from the Extractor_config_workflow_* and Task_labels_workflow_*
-        # looking up the task and tools for point_extractor_by_frame
-        # then combining with the lables, e.g.
-        # point_extractor_by_frame:
-        # -   details: {}
-        #     task: T0
-        #     tools:
-        #     - 0
-        #     - 1
-        #     - 2
-        #     - 3
-        # T0.tools.0.label: Road Blockage
-        for (tool, name) in [(0, 'blockages'), (1, 'floods'), (2, 'shelters'), (3, 'damage')]:
-            # TODO: figure out if more frames than 0 & 1 need to be handled here
+        for (tool, name) in get_row_point_task_details(row.axes[0], task_labels_dict):
+            # frames than 0 & 1 (before and after) only right now.
             for df in [0, 1]:
                 #data.frame{1,0}.T0_tool{0,1,2,3}_{x,y}
 

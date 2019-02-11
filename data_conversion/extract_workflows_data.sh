@@ -17,6 +17,7 @@ mkdir -p $CONFIG_DIR
 for workflow_id in "${workflow_ids[@]}"
 do
   printf "\n###############-START WORKFLOW_ID:${workflow_id}-###############\n"
+
   # https://aggregation-caesar.zooniverse.org/Scripts.html#configure-the-extractors-and-reducers
   # we can add workflow major / minor version numbers here if needed
   # NOTE if you don't supply a version number it defaults to the max version
@@ -33,10 +34,21 @@ do
   printf "\n\n"
   printf "Exporting data for workflow: $workflow_id using extractor config: $extractor_config\n"
   panoptes_aggregation extract -d $DATA_OUT_DIR -O -o $export_suffix $classification_csv_file $extractor_config
-  printf "###############-END WORKFLOW_ID:${workflow_id}-###############\n"
 
   # TODO: now convert each marking task has to have the point data converted to lat / lon
   # https://github.com/AroneyS/prn_data_extract
-  # python convert_to_ibcc.py outputs/point_extractor_by_frame_workflow_4970.csv outputs/question_extractor_workflow_4970.csv inputs/subjects.csv test_cam_run
-  # python convert_to_ibcc.py --points outputs/point_extractor_by_frame_workflow_4970.csv --questions outputs/question_extractor_workflow_4970.csv --subjects inputs/subjects.csv
+  printf "\n\n"
+  printf "Converting the extract data to downstream IBCC format: $workflow_id\n"
+  # TODO reflect on the exit code here and crazy warn if it doesn't process properly
+  task_label_configs=($(ls "${CONFIG_DIR}/Task_labels_workflow_${workflow_id}_"*".yaml"))
+  task_label_config=${task_label_configs[0]}
+  python convert_to_ibcc.py \
+    --points "outputs/point_extractor_by_frame_workflow_$workflow_id.csv" \
+    --questions "outputs/question_extractor_workflow_$workflow_id.csv" \
+    --subjects "inputs/subjects.csv" \
+    --task-labels $task_label_config
+
+  exit
+
+  printf "###############-END WORKFLOW_ID:${workflow_id}-###############\n"
 done
