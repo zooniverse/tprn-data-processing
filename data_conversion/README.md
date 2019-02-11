@@ -10,6 +10,12 @@ Firstly assemble the files you need:
 
 https://aggregation-caesar.zooniverse.org/Scripts.html#download-your-data-from-the-project-builder
 
+  1. Project classifications export
+  0. Project workflows export
+  0. Project workflow contents export
+      + https://github.com/zooniverse/Panoptes/pull/3044
+  0. Project subjects export
+
 Use the `TPRN_IN_DATA_DIR` env variable to define the location of the input data on your local filesyste. Likewise the `TPRN_OUT_DATA_DIR` for the output directory.
 
 From the `data_conversion` directory:
