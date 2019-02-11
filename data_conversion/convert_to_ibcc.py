@@ -6,6 +6,11 @@ from scipy.interpolate import interp1d
 import scipy.ndimage
 from ast import literal_eval
 
+class MissingCoordinateMetadata(Exception):
+    # see tiling/convert_tiles_to_jpg.py
+    """Raised when the subject doesn't have the metadata for pixel conversion to lat/lon"""
+    pass
+
 import pdb
 
 '''
@@ -75,8 +80,7 @@ question_annotations_file = args.questions
 subjects_metadata_file = args.subjects
 output_file_suffix = args.output_suffix
 
-def get_coords_mark(markinfo):
-
+def get_lat_lon_coords_from_pixels(markinfo):
     mark_x = [float(i) for i in markinfo['x']]
     mark_y = [float(i) for i in markinfo['y']]
 
@@ -86,10 +90,15 @@ def get_coords_mark(markinfo):
     # https://github.com/vrooje/Data-digging/blob/1eece78c0f4dfc6b700e3f631d37681b6a8b7bf6/example_scripts/planetary_response_network/caribbean_irma_2017/extract_markings_to1file.py#L242
     # OR conform to what metadata we will use going forward, see the tiling convert_tiles_to_jpg.py
 
-    the_x = np.array([markinfo['x_min'], markinfo['imsize_x_pix']], dtype=float)
-    the_y = np.array([markinfo['y_min'], markinfo['imsize_y_pix']], dtype=float)
-    the_lon = np.array([markinfo['lon_min'], markinfo['lon_max']], dtype=float)
-    the_lat = np.array([markinfo['lat_min'], markinfo['lat_max']], dtype=float)
+    try:
+        the_x = np.array([markinfo['x_min'], markinfo['imsize_x_pix']], dtype=float)
+        the_y = np.array([markinfo['y_min'], markinfo['imsize_y_pix']], dtype=float)
+        the_lon = np.array([markinfo['lon_min'], markinfo['lon_max']], dtype=float)
+        the_lat = np.array([markinfo['lat_min'], markinfo['lat_max']], dtype=float)
+    except KeyError as e:
+        # missing data for the converstion to lat / lon
+        raise MissingCoordinateMetadata(str(e))
+
 
     # don't throw an error if the coords are out of bounds, but also don't extrapolate
     f_x_lon = interp1d(the_x, the_lon, bounds_error=False, fill_value=(None, None))
@@ -108,6 +117,9 @@ base_columns = ['classification_id', 'user_name', 'user_id', 'workflow_id', 'tas
                 'subject_id', 'extractor','data.aggregation_version']
 
 
+# Target for optimization here, projects with lots of subjects will make this slow
+# for each extraction run, either subset out the data for target classifications
+# or do this filtering once and store for each subsequent run
 print('Loading the subject data')
 subjects_dict = {}
 # Make subject dictionary with id as key and metadata
@@ -118,54 +130,53 @@ for subjects_chunk in pd.read_csv(subjects_metadata_file, usecols=['subject_id',
         subjects_dict[row['subject_id']] = ujson.loads(row['metadata'])
 print('Files loaded successfully')
 
+print('Converting marking tasks to lat / lon format')
 column_points_extras = ['tool', 'label', 'how_damaged', 'frame', 'x', 'y', 'lon_mark', 'lat_mark',
  'lon_min', 'lon_max', 'lat_min', 'lat_max', 'imsize_x_pix', 'imsize_y_pix']
 column_points = column_names + column_points_extras
 points_included_cols = base_columns + column_points_extras
 points_temp = []
 
-# Iterate through point classifications, finding longitude/lattitude equivalents
+# Iterate through point classifications finding longitude/lattitude equivalents
 for i, row in classifications_points.iterrows():
     subject_id = row['subject_id']
     markinfo = subjects_dict[subject_id]
     markinfo['x_min'] = 1 #np.ones_like(markinfo['x'])
     markinfo['y_min'] = 1 #np.ones_like(markinfo['y'])
 
+    try:
+        # TODO: these tools need to come from the relevant config file
+        # in this case they can come from the Extractor_config_workflow_* and Task_labels_workflow_*
+        # looking up the task and tools for point_extractor_by_frame
+        # then combining with the lables, e.g.
+        # point_extractor_by_frame:
+        # -   details: {}
+        #     task: T0
+        #     tools:
+        #     - 0
+        #     - 1
+        #     - 2
+        #     - 3
+        # T0.tools.0.label: Road Blockage
+        for (tool, name) in [(0, 'blockages'), (1, 'floods'), (2, 'shelters'), (3, 'damage')]:
+            # TODO: figure out if more frames than 0 & 1 need to be handled here
+            for df in [0, 1]:
+                #data.frame{1,0}.T0_tool{0,1,2,3}_{x,y}
 
-    # TODO: these tools need to come from the relevant config file
-    # in this case they can come from the Extractor_config_workflow_* and Task_labels_workflow_*
-    # looking up the task and tools for point_extractor_by_frame
-    # then combining with the lables, e.g.
-    # point_extractor_by_frame:
-    # -   details: {}
-    #     task: T0
-    #     tools:
-    #     - 0
-    #     - 1
-    #     - 2
-    #     - 3
-    # T0.tools.0.label: Road Blockage
-    for (tool, name) in [(0, 'blockages'), (1, 'floods'), (2, 'shelters'), (3, 'damage')]:
-        # TODO: figure out if more frames than 0 & 1 need to be handled here
-        for df in [0, 1]:
-            #data.frame{1,0}.T0_tool{0,1,2,3}_{x,y}
+                basename = 'data.frame' + str(df) + '.T0_tool' + str(tool) + '_'
 
-            basename = 'data.frame' + str(df) + '.T0_tool' + str(tool) + '_'
-
-            try:
-                markinfo['x'] = ujson.loads(row[basename + 'x'])
-                markinfo['y'] = ujson.loads(row[basename + 'y'])
-            except:
-                markinfo['x'] = None
-                markinfo['y'] = None
-
-            if markinfo['x'] != None and markinfo['y'] != None:
                 try:
-                    (lon, lat) = get_coords_mark(markinfo)
-                except KeyError:
+                    # Load the pixel location data from extracts
+                    markinfo['x'] = ujson.loads(row[basename + 'x'])
+                    markinfo['y'] = ujson.loads(row[basename + 'y'])
+                except:
+                    markinfo['x'] = None
+                    markinfo['y'] = None
                     # make sure we try the next frame of data
                     # as the user may have marked the 2nd frame
                     continue
+
+                (lon, lat) = get_lat_lon_coords_from_pixels(markinfo)
 
                 for j in range(len(lon)):
                     add_temp = []
@@ -202,10 +213,18 @@ for i, row in classifications_points.iterrows():
                     temp = temp + add_temp
                     points_temp.append(temp)
 
-    if i % 100 == 0:
-        print('Points done: ' + f"{i:,d}", end='\r')
+        if i % 100 == 0:
+            print('Points done: ' + f"{i:,d}", end='\r')
+
+    except MissingCoordinateMetadata as e:
+        # skip the data set conversion for all points
+        print("Missing subject metadata: %s\nCan't convert this data set, quiting." % str(e))
+        sys.exit(os.EX_DATAERR)
+
 pdb.set_trace()
-print('Points done: ' + f"{i:,d}")
+num_points_processed = len(points_temp)
+print('Points done: ' + f"{num_points_processed:,d}")
+
 points_outfile = pd.DataFrame(points_temp, columns=column_points)
 filename = 'data_points_' + str(output_file_suffix) + '.csv'
 points_outfile[points_included_cols].to_csv(filename, index=False)
