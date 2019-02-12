@@ -84,6 +84,11 @@ subjects_metadata_file = args.subjects
 task_labels_file = args.task_labels
 output_file_suffix = args.output_suffix
 
+output_dir = os.environ.get('DATA_OUT_DIR','outputs/')
+output_data_dir = os.path.join(output_dir, 'ibcc')
+if not os.path.exists(output_data_dir):
+    os.mkdir(output_data_dir)
+
 def get_lat_lon_coords_from_pixels(markinfo):
     mark_x = [float(i) for i in markinfo['x']]
     mark_y = [float(i) for i in markinfo['y']]
@@ -132,6 +137,10 @@ def get_row_point_task_details(col_headers, known_task_labels):
             point_task_details.append(tool_num_name_tuple)
 
     return point_task_details
+
+def output_file_path(file_prefix):
+    file_name = file_prefix + '_' + str(output_file_suffix) + '.csv'
+    return output_data_dir + '/' + file_name
 
 ## Classify point questions
 print('Loading point classifications')
@@ -240,12 +249,11 @@ for i, row in classifications_points.iterrows():
         print("Missing subject metadata: %s\nCan't convert this data set, quiting." % str(e))
         sys.exit(os.EX_DATAERR)
 
-pdb.set_trace()
 num_points_processed = len(points_temp)
 print('Points done: ' + f"{num_points_processed:,d}")
 
 points_outfile = pd.DataFrame(points_temp, columns=column_points)
-filename = 'data_points_' + str(output_file_suffix) + '.csv'
+filename = output_file_path('data_points')
 points_outfile[points_included_cols].to_csv(filename, index=False)
 print(filename + ' file created successfully')
 
@@ -288,6 +296,9 @@ for i, row in classifications_questions.iterrows():
                         markinfo['imsize_y_pix']
     ]
 
+    pdb.set_trace()
+
+    # Get the question answers labels to find the
     # Number of structures visible
     if row['data.None'] == 1.00:
         temp = row.tolist()
@@ -314,6 +325,9 @@ for i, row in classifications_questions.iterrows():
         temp = temp + subject_extras
         questions_temp.append(temp)
 
+    # ?? How do we determine the shortcut tasks?
+    # ?? inspect the workflows source file for id / version?
+    #
     # Shortcuts (no answer to any questions)
     elif row['data.unclassifiable-image'] == 1.00:
         temp = row.tolist()
@@ -334,23 +348,21 @@ for i, row in classifications_questions.iterrows():
 
     if i % 100 == 0:
         print('Questions done: ' + f"{i:,d}", end='\r')
-    #if i > 1000:
-    #    break
 
 print('Questions done: ' + f"{i:,d}")
 
 questions_outfile = pd.DataFrame(questions_temp, columns=column_questions)
-filename = 'data_questions_' + str(output_file_suffix) + '.csv'
+filename = output_file_path('data_questions')
 questions_outfile[questions_included_cols].to_csv(filename, index=False)
 print(filename + ' file created successfully')
 
 shortcuts_outfile = pd.DataFrame(shortcuts_temp, columns=column_shortcuts)
-filename = 'data_shortcuts_' + str(output_file_suffix) + '.csv'
+filename = output_file_path('data_shortcuts')
 shortcuts_outfile[shortcuts_included_cols].to_csv(filename, index=False)
 print(filename + ' file created successfully')
 
 blanks_outfile = pd.DataFrame(blanks_temp, columns=column_blanks)
-filename = 'data_blanks_' + str(output_file_suffix) + '.csv'
-questions_outfile[blanks_included_cols].to_csv(filename, index=False)
-print(filename + ' file created successfully')
-print('Fin')
+filename = output_file_path('data_blanks')
+blanks_outfile[blanks_included_cols].to_csv(filename, index=False)
+print(filename + ' file created successfully\n')
+print('Finished converting data to IBCC format\n')
