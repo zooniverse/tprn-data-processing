@@ -35,20 +35,24 @@ do
   printf "Exporting data for workflow: $workflow_id using extractor config: $extractor_config\n"
   panoptes_aggregation extract -d $DATA_OUT_DIR -O -o $export_suffix $classification_csv_file $extractor_config
 
-  # TODO: now convert each marking task has to have the point data converted to lat / lon
-  # https://github.com/AroneyS/prn_data_extract
-  printf "\n\n"
-  printf "Converting the extract data to downstream IBCC format: $workflow_id\n"
-  # TODO reflect on the exit code here and crazy warn if it doesn't process properly
-  task_label_configs=($(ls "${CONFIG_DIR}/Task_labels_workflow_${workflow_id}_"*".yaml"))
-  task_label_config=${task_label_configs[0]}
-  python convert_to_ibcc.py \
-    --points "outputs/point_extractor_by_frame_workflow_$workflow_id.csv" \
-    --questions "outputs/question_extractor_workflow_$workflow_id.csv" \
-    --subjects "inputs/subjects.csv" \
-    --task-labels $task_label_config
-
-  exit
+  # only attempt convert the data if we've extracted some
+  if [ $? -eq 0 ]; then
+    # TODO: now convert each marking task has to have the point data converted to lat / lon
+    # https://github.com/AroneyS/prn_data_extract
+    printf "\n\n"
+    printf "Converting the extract data to downstream IBCC format: $workflow_id\n"
+    # TODO reflect on the exit code here and crazy warn if it doesn't process properly
+    task_label_configs=($(ls "${CONFIG_DIR}/Task_labels_workflow_${workflow_id}_"*".yaml"))
+    task_label_config=${task_label_configs[0]}
+    python convert_to_ibcc.py \
+      --points "outputs/point_extractor_by_frame_workflow_$workflow_id.csv" \
+      --questions "outputs/question_extractor_workflow_$workflow_id.csv" \
+      --subjects "inputs/subjects.csv" \
+      --task-labels $task_label_config
+    if [ $? -ne 0 ]; then
+      printf "\nWARNING: Failed to convert the data for $workflow_id\n\n" >&2
+    fi
+  fi
 
   printf "###############-END WORKFLOW_ID:${workflow_id}-###############\n"
 done
