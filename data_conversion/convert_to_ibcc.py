@@ -89,9 +89,10 @@ output_data_dir = os.path.join(output_dir, 'ibcc')
 if not os.path.exists(output_data_dir):
     os.mkdir(output_data_dir)
 
-def get_lat_lon_coords_from_pixels(markinfo):
-    mark_x = [float(i) for i in markinfo['x']]
-    mark_y = [float(i) for i in markinfo['y']]
+def get_lat_lon_coords_from_pixels(pixel_coords, geo_metadata):
+    # ensure the coords are floats
+    marks_x = [float(i) for i in pixel_coords['x']]
+    marks_y = [float(i) for i in pixel_coords['y']]
 
     # TODO: look at how we can use other information to determine the
     # lat / lon extents for use t determine the lat / lon from pixel coords
@@ -100,23 +101,24 @@ def get_lat_lon_coords_from_pixels(markinfo):
     # OR conform to what metadata we will use going forward, see the tiling convert_tiles_to_jpg.py
 
     try:
-        the_x = np.array([markinfo['x_min'], markinfo['imsize_x_pix']], dtype=float)
-        the_y = np.array([markinfo['y_min'], markinfo['imsize_y_pix']], dtype=float)
-        the_lon = np.array([markinfo['lon_min'], markinfo['lon_max']], dtype=float)
-        the_lat = np.array([markinfo['lat_min'], markinfo['lat_max']], dtype=float)
+        the_x = np.array([geo_metadata['x_min'], geo_metadata['imsize_x_pix']], dtype=float)
+        the_y = np.array([geo_metadata['y_min'], geo_metadata['imsize_y_pix']], dtype=float)
+        the_lon = np.array([geo_metadata['lon_min'], geo_metadata['lon_max']], dtype=float)
+        the_lat = np.array([geo_metadata['lat_min'], geo_metadata['lat_max']], dtype=float)
     except KeyError as e:
         # missing data for the converstion to lat / lon
         raise MissingCoordinateMetadata(str(e))
 
 
+    # setup interpolation functions to get the lat / lon from pixel marks
     # don't throw an error if the coords are out of bounds, but also don't extrapolate
     f_x_lon = interp1d(the_x, the_lon, bounds_error=False, fill_value=(None, None))
     f_y_lat = interp1d(the_y, the_lat, bounds_error=False, fill_value=(None, None))
 
-    return f_x_lon(mark_x), f_y_lat(mark_y)
+    return f_x_lon(marks_x), f_y_lat(marks_y)
 
 # get the task lables matching a regex from the task list
-def get_task_num_and_label_tuples(label_function, regex, headers, known_labels):
+def get_task_tool_num_and_label_tuples(label_function, regex, headers, known_labels):
     task_lables = []
     # thought, maybe these can be generated using point_extractor_by_frame config files?
     for header in headers:
@@ -138,7 +140,7 @@ def get_unique_point_task_tuples(headers, known_labels):
     # only take the x values to avoid double listing
     point_label_re = re.compile('\Adata\.frame0\.(T\d)_tool(\d)_x\Z', re.IGNORECASE)
     label_constructor = lambda task_key, tool_num: "%s.tools.%s.label" % (task_key, tool_num)
-    return get_task_num_and_label_tuples(label_constructor, point_label_re, headers, known_labels)
+    return get_task_tool_num_and_label_tuples(label_constructor, point_label_re, headers, known_labels)
 
 def output_file_path(file_prefix):
     file_name = file_prefix + '_' + str(output_file_suffix) + '.csv'
@@ -161,13 +163,25 @@ def format_task_label(label):
     return hyphenated_label.lower()
 
 def point_subtask_label_headers(headers, known_task_labels):
+    subtask_labels = []
     subtask_lable_re = re.compile('\Adata\.frame\d\.(.+)_.+(\d)_details\Z', re.IGNORECASE)
+    subtask_label_frame_re = re.compile('\Adata\.(frame)(\d)\..+_details\Z', re.IGNORECASE)
     # NOTE: Not sure if there are more than 1 subtasks per tool, if so the 0 key will increment.
     label_constructor = lambda task_key, tool_num: "%s.tools.%s.details.0.question" % (task_key, tool_num)
-    subtask_label_tuples = get_task_num_and_label_tuples(label_constructor, subtask_lable_re, headers, known_task_labels)
-    _, subtask_question_labels = zip(*subtask_label_tuples)
-    unique_subtask_labels = list(set(subtask_question_labels))
-    return [format_task_label(label) for label in unique_subtask_labels]
+    for header in headers:
+        subtask_label_tuples = get_task_tool_num_and_label_tuples(label_constructor, subtask_lable_re, [header], known_task_labels)
+        # skip point headers (subtasks) that don't match the format
+        if len(subtask_label_tuples) == 0:
+            continue
+
+        matchObj = subtask_label_frame_re.match(header)
+        label_frame_prefix = "%s.%s" % (matchObj.group(1), matchObj.group(2))
+
+        _, subtask_question_label = subtask_label_tuples[0]
+        formatted_subtask_label = "%s.%s" % (label_frame_prefix, format_task_label(subtask_question_label))
+        subtask_labels.append(formatted_subtask_label)
+
+    return subtask_labels
 
 def get_point_task_label_headers(headers, known_labels):
     task_label_headers = []
@@ -175,7 +189,7 @@ def get_point_task_label_headers(headers, known_labels):
     point_label_frame_re = re.compile('\Adata\.(frame)(\d)\.T\d_tool\d_([xy])\Z', re.IGNORECASE)
     label_constructor = lambda task_key, tool_num: "%s.tools.%s.label" % (task_key, tool_num)
     for header in headers:
-        task_label_tuples = get_task_num_and_label_tuples(label_constructor, point_label_re, [header], known_labels)
+        task_label_tuples = get_task_tool_num_and_label_tuples(label_constructor, point_label_re, [header], known_labels)
         # skip point headers (subtasks) that don't match the format
         if len(task_label_tuples) == 0:
             continue
@@ -192,6 +206,12 @@ def get_point_task_label_headers(headers, known_labels):
 
 def add_data_prefix(label):
     return "%s.%s" % ('data', label)
+
+def is_subtask_header(header):
+    return header.split("_")[-1] == 'details'
+
+def exists_in_list(value, list):
+    len([element for element in list if element == value] != 0)
 
 ## Classify point questions
 print('Loading point classifications')
@@ -222,11 +242,12 @@ print('Converting marking tasks to lat / lon format')
 # new point lat lon headers
 point_column_new_headers = [ 'point_lon', 'point_lat' ]
 # subject metadata headers for recording original coords
-subject_metadata_headers = [
-    'image_lon_min', 'image_lon_max',
-    'image_lat_min', 'image_lat_max',
-    'image_size_x_pix', 'image_size_y_pix'
+subject_metadata_orig_headers = [
+    'lon_min', 'lon_max',
+    'lat_min', 'lat_max',
+    'imsize_x_pix', 'imsize_y_pix'
 ]
+subject_metadata_headers = ["image_%s" % header for header in subject_metadata_orig_headers]
 
 # get the current incoming headers for reformatting
 extract_file_headers = classifications_points.columns.values.tolist()
@@ -239,85 +260,109 @@ headers_to_relabel = point_extractor_exclude_headers(extract_file_headers)
 
 # reformat the point task headers to have the task label names
 point_task_label_headers = get_point_task_label_headers(headers_to_relabel, task_labels_dict)
+point_task_labels_orig = [header for header in headers_to_relabel if not is_subtask_header(header)]
 
 # get the header columns that are't frame point tool marks
 base_column_headers = [header for header in extract_file_headers if header not in headers_to_relabel]
+# base_header_index_lookup = [(header, formatted_output_headers.index(header)) for header in base_column_headers]
 
 # get the header columns for the point task subtasks
 subtask_label_headers = point_subtask_label_headers(extract_file_headers, task_labels_dict)
+subtask_label_headers_orig = [header for header in headers_to_relabel if is_subtask_header(header)]
 
 # construct a new list of formatted labels for the output column ordering
-formatted_ouput_headers = base_column_headers \
+formatted_output_headers = base_column_headers \
     + [add_data_prefix(label) for label in point_task_label_headers] \
     + [add_data_prefix(label) for label in subtask_label_headers] \
     + [add_data_prefix(label) for label in point_column_new_headers] \
     + subject_metadata_headers
+
+# construct a list of incoming headers that match the new output header orderings
+original_to_output_format_headers = base_column_headers \
+    + point_task_labels_orig \
+    + subtask_label_headers_orig \
+    + point_column_new_headers \
+    + subject_metadata_orig_headers
+
+# create an index mapping to lookup extract row column headers to transformed output header columns
+original_header_to_output_index_map = { header: index for index, header in enumerate(original_to_output_format_headers) }
 
 points_temp = []
 
 # Iterate through point classifications finding longitude/lattitude equivalents
 for i, row in classifications_points.iterrows():
     subject_id = row['subject_id']
-    markinfo = subjects_dict[subject_id]
-    markinfo['x_min'] = 1 #np.ones_like(markinfo['x'])
-    markinfo['y_min'] = 1 #np.ones_like(markinfo['y'])
+    subject_geo_metadata = subjects_dict[subject_id]
+    # I am not sure why this is setup this way, to do with origin points?
+    # https://github.com/zooniverse/Data-digging/blob/90677ac24681de834caceaa622f61a2fcc3cbbe1/example_scripts/planetary_response_network/caribbean_irma_2017/extract_markings_to1file.py#L564
+    subject_geo_metadata['x_min'] = 1
+    subject_geo_metadata['y_min'] = 1
 
     try:
         for (tool, name) in get_unique_point_task_tuples(row.axes[0], task_labels_dict):
             # frames than 0 & 1 (before and after) only right now.
-            for df in [0, 1]:
-                #data.frame{1,0}.T0_tool{0,1,2,3}_{x,y}
+            for frame_num in [0, 1]:
+                # find the pixel coords for any marking tool in this frame
+                point_task_tool_basename = "\A(data\.frame%s\.T\d_tool%s_)[xy]\Z" % (frame_num, tool)
+                point_task_tool_basename_re = re.compile(point_task_tool_basename, re.IGNORECASE)
 
-                basename = 'data.frame' + str(df) + '.T0_tool' + str(tool) + '_'
+                found_point_tasks_pixels = {}
+                for row_header in original_header_to_output_index_map:
+                    matchObj = point_task_tool_basename_re.match(row_header)
+                    if matchObj:
+                        # skip empty data row values
+                        if pd.isnull(row[row_header]):
+                            continue
 
-                try:
-                    # Load the pixel location data from extracts
-                    markinfo['x'] = ujson.loads(row[basename + 'x'])
-                    markinfo['y'] = ujson.loads(row[basename + 'y'])
-                except:
-                    markinfo['x'] = None
-                    markinfo['y'] = None
-                    # make sure we try the next frame of data
-                    # as the user may have marked the 2nd frame
-                    continue
+                        frame_tool_basename = matchObj.group(1)
+                        frame_tool_x_key = frame_tool_basename + 'x'
+                        frame_tool_y_key = frame_tool_basename + 'y'
+                        pixel_coords = {}
+                        try:
+                            # Load the pixel location data from extracts
+                            pixel_coords['x'] = ujson.loads(row[frame_tool_x_key])
+                            pixel_coords['y'] = ujson.loads(row[frame_tool_y_key])
+                            # convert the x,y to lat/long coords using subject geo metadata
+                            (lon, lat) = get_lat_lon_coords_from_pixels(pixel_coords, subject_geo_metadata)
+                            found_point_tasks_pixels[frame_tool_x_key] = lon
+                            found_point_tasks_pixels[frame_tool_y_key] = lat
+                        except KeyError:
+                            found_point_tasks_pixels[frame_tool_x_key] = None
+                            found_point_tasks_pixels[frame_tool_y_key] = None
 
-                (lon, lat) = get_lat_lon_coords_from_pixels(markinfo)
+                # now convert the data from original to new output format
+                reformatted_row = [None] * len(original_header_to_output_index_map)
+                for row_header, output_index in original_header_to_output_index_map.items():
 
-                for j in range(len(lon)):
-                    add_temp = []
-                    # TODO: work on sub-task details, how are these used in the project
-                    if tool == 3: #Tool 3 is Structural damage which can also include further details
-                        detail_list = ujson.loads(row[basename + 'details'])
-                        for j in range(len(lon)):
-                            detail = list(detail_list[j][0])[0]
-                            if detail == 'None':
-                                detail = 'Unspecified'
-                            else:
-                                detail = details[int(detail)]
+                    # handle subtasks
+                    # if row_header in subtask_label_headers_orig:
+                    #     pdb.set_trace()
+                        # detail_list = ujson.eval(row[basename + 'details'])
+                    #     for j in range(len(lon)):
+                    #         detail = list(detail_list[j][0])[0]
+                    #         if detail == 'None':
+                    #             detail = 'Unspecified'
+                    #         else:
+                    #             detail = details[int(detail)]
+                    # else:
+                    # detail = ''
+
+                    if row_header == 'point_lon':
+                        pdb.set_trace()
+
+                    if row_header in point_column_new_headers:
+                        if len(found_point_tasks_pixels) == 0:
+                            reformatted_row[output_index] = []
+                        else
+                            pdb.set_trace()
+                            reformatted_row[output_index] = found_point_tasks_pixels[row_header]
+
+                    elif row_header in subject_metadata_headers:
+                        reformatted_row[output_index] = subject_metadata_orig_headers[row_header]
                     else:
-                        detail = ''
-                    # Append order: 'tool', 'label', 'how_damaged', 'frame', 'x', 'y',
-                    #               'lon_mark', 'lat_mark', 'lon_min', 'lon_max', 'lat_min',
-                    #               'lat_max', 'imsize_x_pix', 'imsize_y_pix'
-                    add_temp = [
-                                tool,
-                                name,
-                                detail,
-                                df,
-                                markinfo['x'][j],
-                                markinfo['y'][j],
-                                lon[j],
-                                lat[j],
-                                markinfo['lon_min'],
-                                markinfo['lon_max'],
-                                markinfo['lat_min'],
-                                markinfo['lat_max'],
-                                markinfo['imsize_x_pix'],
-                                markinfo['imsize_y_pix']
-                    ]
-                    temp = row.tolist()
-                    temp = temp + add_temp
-                    points_temp.append(temp)
+                        reformatted_row[output_index] = row[row_header]
+
+                    points_temp.append(reformatted_row)
 
         if i % 100 == 0:
             print('Points done: ' + f"{i:,d}", end='\r')
@@ -330,10 +375,12 @@ for i, row in classifications_points.iterrows():
 num_points_processed = len(points_temp)
 print('Points done: ' + f"{num_points_processed:,d}")
 
-points_outfile_df = pd.DataFrame(points_temp, columns=formatted_ouput_headers)
+pdb.set_trace()
+
+points_outfile_df = pd.DataFrame(points_temp, columns=formatted_output_headers)
 input_file_name = os.path.basename(point_annotations_file)
 output_filename = output_file_path(input_file_name)
-points_outfile_df[formatted_ouput_headers].to_csv(output_filename, index=False)
+points_outfile_df[formatted_output_headers].to_csv(output_filename, index=False)
 print(output_filename + ' file created successfully')
 
 ## Classify questions, shortcuts and non-answers
