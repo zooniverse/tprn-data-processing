@@ -115,41 +115,87 @@ def get_lat_lon_coords_from_pixels(markinfo):
 
     return f_x_lon(mark_x), f_y_lat(mark_y)
 
-# find the list of tool nums and labels e.g.
-# [(0, 'blockages'), (1, 'floods'), (2, 'shelters'), (3, 'damage')]
-def get_row_point_task_details(col_headers, known_task_labels):
-    point_task_details = []
+# get the task lables matching a regex from the task list
+def get_task_num_and_label_tuples(label_function, regex, headers, known_labels):
+    task_lables = []
     # thought, maybe these can be generated using point_extractor_by_frame config files?
-
-    # looking for headers that match the data.frame0.T0_tool0_x format
-    # only take the x values to avoid double listing
-    point_lable_re = re.compile('\Adata\.frame0.(T\d)_tool(\d)_x', re.IGNORECASE)
-
-    for header in col_headers:
-        matchObj = point_lable_re.match(header)
+    for header in headers:
+        matchObj = regex.match(header)
         if matchObj:
             task_key = matchObj.group(1)
             tool_num = matchObj.group(2)
-            label_lookup_key = "%s.tools.%s.label" % (task_key, tool_num)
-            known_task_labels[label_lookup_key]
-            tool_num_name_tuple = (tool_num, known_task_labels[label_lookup_key])
+            label_lookup_key = label_function(task_key, tool_num)
+            known_labels[label_lookup_key]
+            tool_num_name_tuple = (tool_num, known_labels[label_lookup_key])
+            task_lables.append(tool_num_name_tuple)
 
-            point_task_details.append(tool_num_name_tuple)
+    return task_lables
 
-    return point_task_details
+# find the list of tool nums and labels e.g.
+# [(0, 'blockages'), (1, 'floods'), (2, 'shelters'), (3, 'damage')]
+def get_unique_point_task_tuples(headers, known_labels):
+    # looking for headers that match the data.frame0.T0_tool0_x format
+    # only take the x values to avoid double listing
+    point_label_re = re.compile('\Adata\.frame0\.(T\d)_tool(\d)_x\Z', re.IGNORECASE)
+    label_constructor = lambda task_key, tool_num: "%s.tools.%s.label" % (task_key, tool_num)
+    return get_task_num_and_label_tuples(label_constructor, point_label_re, headers, known_labels)
 
 def output_file_path(file_prefix):
     file_name = file_prefix + '_' + str(output_file_suffix) + '.csv'
     return output_data_dir + '/' + file_name
 
+def point_extractor_exclude_headers(headers):
+    exclude_headers = []
+    exclude_header_re = re.compile('\Adata\.frame.+', re.IGNORECASE)
+    for header in headers:
+        matchObj = exclude_header_re.match(header)
+        if matchObj:
+            exclude_headers.append(matchObj.group(0))
+
+    return exclude_headers
+
+# take the first line of the task label
+def format_task_label(label):
+    label_lines = label.splitlines()
+    hyphenated_label = label_lines[0].replace(" ", "-")
+    return hyphenated_label.lower()
+
+def point_subtask_label_headers(headers, known_task_labels):
+    subtask_lable_re = re.compile('\Adata\.frame\d\.(.+)_.+(\d)_details\Z', re.IGNORECASE)
+    # NOTE: Not sure if there are more than 1 subtasks per tool, if so the 0 key will increment.
+    label_constructor = lambda task_key, tool_num: "%s.tools.%s.details.0.question" % (task_key, tool_num)
+    subtask_label_tuples = get_task_num_and_label_tuples(label_constructor, subtask_lable_re, headers, known_task_labels)
+    _, subtask_question_labels = zip(*subtask_label_tuples)
+    unique_subtask_labels = list(set(subtask_question_labels))
+    return [format_task_label(label) for label in unique_subtask_labels]
+
+def get_point_task_label_headers(headers, known_labels):
+    task_label_headers = []
+    point_label_re = re.compile('\Adata\.frame\d\.(T\d)_tool(\d)_[xy]\Z', re.IGNORECASE)
+    point_label_frame_re = re.compile('\Adata\.(frame)(\d)\.T\d_tool\d_([xy])\Z', re.IGNORECASE)
+    label_constructor = lambda task_key, tool_num: "%s.tools.%s.label" % (task_key, tool_num)
+    for header in headers:
+        task_label_tuples = get_task_num_and_label_tuples(label_constructor, point_label_re, [header], known_labels)
+        # skip point headers (subtasks) that don't match the format
+        if len(task_label_tuples) == 0:
+            continue
+
+        _, task_label = task_label_tuples[0]
+
+        matchObj = point_label_frame_re.match(header)
+        label_frame_prefix = "%s.%s" % (matchObj.group(1), matchObj.group(2))
+        label_point_suffix = matchObj.group(3)
+        formatted_point_label = "%s.%s-%s" % (label_frame_prefix, format_task_label(task_label), label_point_suffix)
+        task_label_headers.append(formatted_point_label)
+
+    return task_label_headers
+
+def add_data_prefix(label):
+    return "%s.%s" % ('data', label)
+
 ## Classify point questions
 print('Loading point classifications')
 classifications_points = pd.read_csv(point_annotations_file)
-column_names = classifications_points.columns.values.tolist()
-# classification_id,user_name,user_id,workflow_id,task,created_at,subject_id,extractor,data.aggregation_version,
-# data.frame{1/0}.T0_tool{3/2/1/0}_{x/y/details} (x18)
-base_columns = ['classification_id', 'user_name', 'user_id', 'workflow_id', 'task', 'created_at',
-                'subject_id', 'extractor','data.aggregation_version']
 
 # Load up the task labels data from aggregation config
 print('Loading the task labels file')
@@ -172,10 +218,41 @@ for subjects_chunk in pd.read_csv(subjects_metadata_file, usecols=['subject_id',
 print('Files loaded successfully')
 
 print('Converting marking tasks to lat / lon format')
-column_points_extras = ['tool', 'label', 'how_damaged', 'frame', 'x', 'y', 'lon_mark', 'lat_mark',
- 'lon_min', 'lon_max', 'lat_min', 'lat_max', 'imsize_x_pix', 'imsize_y_pix']
-column_points = column_names + column_points_extras
-points_included_cols = base_columns + column_points_extras
+
+# new point lat lon headers
+point_column_new_headers = [ 'point_lon', 'point_lat' ]
+# subject metadata headers for recording original coords
+subject_metadata_headers = [
+    'image_lon_min', 'image_lon_max',
+    'image_lat_min', 'image_lat_max',
+    'image_size_x_pix', 'image_size_y_pix'
+]
+
+# get the current incoming headers for reformatting
+extract_file_headers = classifications_points.columns.values.tolist()
+
+# point extractor labels don't have labels on them
+# https://github.com/zooniverse/aggregation-for-caesar/issues/115
+# let's just convert them ourselves to keep the extractor outputs
+# consistently formatted as a sparse matrix for points, questions, shortcuts
+headers_to_relabel = point_extractor_exclude_headers(extract_file_headers)
+
+# reformat the point task headers to have the task label names
+point_task_label_headers = get_point_task_label_headers(headers_to_relabel, task_labels_dict)
+
+# get the header columns that are't frame point tool marks
+base_column_headers = [header for header in extract_file_headers if header not in headers_to_relabel]
+
+# get the header columns for the point task subtasks
+subtask_label_headers = point_subtask_label_headers(extract_file_headers, task_labels_dict)
+
+# construct a new list of formatted labels for the output column ordering
+formatted_ouput_headers = base_column_headers \
+    + [add_data_prefix(label) for label in point_task_label_headers] \
+    + [add_data_prefix(label) for label in subtask_label_headers] \
+    + [add_data_prefix(label) for label in point_column_new_headers] \
+    + subject_metadata_headers
+
 points_temp = []
 
 # Iterate through point classifications finding longitude/lattitude equivalents
@@ -186,7 +263,7 @@ for i, row in classifications_points.iterrows():
     markinfo['y_min'] = 1 #np.ones_like(markinfo['y'])
 
     try:
-        for (tool, name) in get_row_point_task_details(row.axes[0], task_labels_dict):
+        for (tool, name) in get_unique_point_task_tuples(row.axes[0], task_labels_dict):
             # frames than 0 & 1 (before and after) only right now.
             for df in [0, 1]:
                 #data.frame{1,0}.T0_tool{0,1,2,3}_{x,y}
@@ -208,6 +285,7 @@ for i, row in classifications_points.iterrows():
 
                 for j in range(len(lon)):
                     add_temp = []
+                    # TODO: work on sub-task details, how are these used in the project
                     if tool == 3: #Tool 3 is Structural damage which can also include further details
                         detail_list = ujson.loads(row[basename + 'details'])
                         for j in range(len(lon)):
@@ -252,117 +330,76 @@ for i, row in classifications_points.iterrows():
 num_points_processed = len(points_temp)
 print('Points done: ' + f"{num_points_processed:,d}")
 
-points_outfile = pd.DataFrame(points_temp, columns=column_points)
-filename = output_file_path('data_points')
-points_outfile[points_included_cols].to_csv(filename, index=False)
-print(filename + ' file created successfully')
+points_outfile_df = pd.DataFrame(points_temp, columns=formatted_ouput_headers)
+input_file_name = os.path.basename(point_annotations_file)
+output_filename = output_file_path(input_file_name)
+points_outfile_df[formatted_ouput_headers].to_csv(output_filename, index=False)
+print(output_filename + ' file created successfully')
 
 ## Classify questions, shortcuts and non-answers
-print('Beginning questions, shortcuts and blanks classifications')
+# print('Beginning questions, shortcuts and blanks classifications')
+#
+# classifications_questions = pd.read_csv(question_annotations_file)
+# column_names = classifications_questions.columns.values.tolist()
+# # classification_id,user_name,user_id,workflow_id,task,created_at,subject_id,extractor,data.10-to-30,data.None,data.aggregation_version,data.more-than-30,data.none,data.ocean-only-no-land,data.unclassifiable-image,data.up-to-10
+# base_columns = ['classification_id', 'user_name', 'user_id', 'workflow_id', 'task',
+#                 'created_at', 'subject_id', 'extractor','data.aggregation_version']
+# column_subject_extras = ['lon_min', 'lon_max', 'lat_min', 'lat_max', 'imsize_x_pix', 'imsize_y_pix']
+# print('Files loaded successfully')
 
-classifications_questions = pd.read_csv(question_annotations_file)
-column_names = classifications_questions.columns.values.tolist()
-# classification_id,user_name,user_id,workflow_id,task,created_at,subject_id,extractor,data.10-to-30,data.None,data.aggregation_version,data.more-than-30,data.none,data.ocean-only-no-land,data.unclassifiable-image,data.up-to-10
-base_columns = ['classification_id', 'user_name', 'user_id', 'workflow_id', 'task',
-                'created_at', 'subject_id', 'extractor','data.aggregation_version']
-column_subject_extras = ['lon_min', 'lon_max', 'lat_min', 'lat_max', 'imsize_x_pix', 'imsize_y_pix']
-print('Files loaded successfully')
+# column_questions_extras = ['question', 'label']
+# column_questions = column_names + column_questions_extras + column_subject_extras
+# questions_included_cols = base_columns + column_questions_extras + column_subject_extras
+# questions_temp = []
 
-column_questions_extras = ['question', 'label']
-column_questions = column_names + column_questions_extras + column_subject_extras
-questions_included_cols = base_columns + column_questions_extras + column_subject_extras
-questions_temp = []
+# column_shortcuts_extras = ['label']
+# column_shortcuts = column_names + column_shortcuts_extras + column_subject_extras
+# shortcuts_included_cols = base_columns + column_shortcuts_extras + column_subject_extras
+# shortcuts_temp = []
 
-column_shortcuts_extras = ['label']
-column_shortcuts = column_names + column_shortcuts_extras + column_subject_extras
-shortcuts_included_cols = base_columns + column_shortcuts_extras + column_subject_extras
-shortcuts_temp = []
+# column_blanks = column_names + column_subject_extras
+# blanks_included_cols = base_columns + column_subject_extras
+# blanks_temp = []
+#
+# # Iterate through question classifications, consolidating data
+# for i, row in classifications_questions.iterrows():
+#     subject_id = row['subject_id']
+#     markinfo = subjects_dict[subject_id]
+#
+#     subject_extras = [
+#                         markinfo['lon_min'],
+#                         markinfo['lon_max'],
+#                         markinfo['lat_min'],
+#                         markinfo['lat_max'],
+#                         markinfo['imsize_x_pix'],
+#                         markinfo['imsize_y_pix']
+#     ]
+#
+#     pdb.set_trace()
+#
+#     # No answer given for any question
+#     elif row['data.none'] == 1.00:
+#         temp = row.tolist()
+#         temp = temp + subject_extras
+#         blanks_temp.append
+#
+#     if i % 100 == 0:
+#         print('Questions done: ' + f"{i:,d}", end='\r')
+#
+# print('Questions done: ' + f"{i:,d}")
 
-column_blanks = column_names + column_subject_extras
-blanks_included_cols = base_columns + column_subject_extras
-blanks_temp = []
+# questions_outfile = pd.DataFrame(questions_temp, columns=column_questions)
+# filename = output_file_path('data_questions')
+# questions_outfile[questions_included_cols].to_csv(filename, index=False)
+# print(filename + ' file created successfully')
 
-# Iterate through question classifications, consolidating data
-for i, row in classifications_questions.iterrows():
-    subject_id = row['subject_id']
-    markinfo = subjects_dict[subject_id]
+# shortcuts_outfile = pd.DataFrame(shortcuts_temp, columns=column_shortcuts)
+# filename = output_file_path('data_shortcuts')
+# shortcuts_outfile[shortcuts_included_cols].to_csv(filename, index=False)
+# print(filename + ' file created successfully')
 
-    subject_extras = [
-                        markinfo['lon_min'],
-                        markinfo['lon_max'],
-                        markinfo['lat_min'],
-                        markinfo['lat_max'],
-                        markinfo['imsize_x_pix'],
-                        markinfo['imsize_y_pix']
-    ]
-
-    pdb.set_trace()
-
-    # Get the question answers labels to find the
-    # Number of structures visible
-    if row['data.None'] == 1.00:
-        temp = row.tolist()
-        temp.append('t2_approximately_ho__s_your_estimate')
-        temp.append('None')
-        temp = temp + subject_extras
-        questions_temp.append(temp)
-    elif row['data.up-to-10'] == 1.00:
-        temp = row.tolist()
-        temp.append('t2_approximately_ho__s_your_estimate')
-        temp.append('<10')
-        temp = temp + subject_extras
-        questions_temp.append(temp)
-    elif row['data.10-to-30'] == 1.00:
-        temp = row.tolist()
-        temp.append('t2_approximately_ho__s_your_estimate')
-        temp.append('10-30')
-        temp = temp + subject_extras
-        questions_temp.append(temp)
-    elif row['data.more-than-30'] == 1.00:
-        temp = row.tolist()
-        temp.append('t2_approximately_ho__s_your_estimate')
-        temp.append('>30')
-        temp = temp + subject_extras
-        questions_temp.append(temp)
-
-    # ?? How do we determine the shortcut tasks?
-    # ?? inspect the workflows source file for id / version?
-    #
-    # Shortcuts (no answer to any questions)
-    elif row['data.unclassifiable-image'] == 1.00:
-        temp = row.tolist()
-        temp.append('Unclassifiable Image')
-        temp = temp + subject_extras
-        shortcuts_temp.append(temp)
-    elif row['data.ocean-only-no-land'] == 1.00:
-        temp = row.tolist()
-        temp.append('Ocean Only (no land)')
-        temp = temp + subject_extras
-        shortcuts_temp.append(temp)
-
-    # No answer given
-    elif row['data.none'] == 1.00:
-        temp = row.tolist()
-        temp = temp + subject_extras
-        blanks_temp.append
-
-    if i % 100 == 0:
-        print('Questions done: ' + f"{i:,d}", end='\r')
-
-print('Questions done: ' + f"{i:,d}")
-
-questions_outfile = pd.DataFrame(questions_temp, columns=column_questions)
-filename = output_file_path('data_questions')
-questions_outfile[questions_included_cols].to_csv(filename, index=False)
-print(filename + ' file created successfully')
-
-shortcuts_outfile = pd.DataFrame(shortcuts_temp, columns=column_shortcuts)
-filename = output_file_path('data_shortcuts')
-shortcuts_outfile[shortcuts_included_cols].to_csv(filename, index=False)
-print(filename + ' file created successfully')
-
-blanks_outfile = pd.DataFrame(blanks_temp, columns=column_blanks)
-filename = output_file_path('data_blanks')
-blanks_outfile[blanks_included_cols].to_csv(filename, index=False)
-print(filename + ' file created successfully\n')
-print('Finished converting data to IBCC format\n')
+# blanks_outfile = pd.DataFrame(blanks_temp, columns=column_blanks)
+# filename = output_file_path('data_blanks')
+# blanks_outfile[blanks_included_cols].to_csv(filename, index=False)
+# print(filename + ' file created successfully\n')
+# print('Finished converting data to IBCC format\n')
