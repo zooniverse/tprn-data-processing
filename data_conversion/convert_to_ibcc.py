@@ -109,13 +109,43 @@ def get_lat_lon_coords_from_pixels(pixel_coords, geo_metadata):
         # missing data for the converstion to lat / lon
         raise MissingCoordinateMetadata(str(e))
 
-
     # setup interpolation functions to get the lat / lon from pixel marks
     # don't throw an error if the coords are out of bounds, but also don't extrapolate
     f_x_lon = interp1d(the_x, the_lon, bounds_error=False, fill_value=(None, None))
     f_y_lat = interp1d(the_y, the_lat, bounds_error=False, fill_value=(None, None))
 
-    return f_x_lon(marks_x), f_y_lat(marks_y)
+    lon = f_x_lon(marks_x)
+    lat = f_y_lat(marks_y)
+
+    return lon, lat
+
+def get_lat_coords_from_pixels(marks, geo_metadata):
+    try:
+        the_y = np.array([geo_metadata['y_min'], geo_metadata['imsize_y_pix']], dtype=float)
+        the_lat = np.array([geo_metadata['lat_min'], geo_metadata['lat_max']], dtype=float)
+    except KeyError as e:
+        # missing data for the converstion to lat / lon
+        raise MissingCoordinateMetadata(str(e))
+
+    # setup interpolation functions to get the lat / lon from pixel marks
+    # don't throw an error if the coords are out of bounds, but also don't extrapolate
+    f_y_lat = interp1d(the_y, the_lat, bounds_error=False, fill_value=(None, None))
+
+    return f_y_lat(marks)
+
+def get_lon_coords_from_pixels(marks, geo_metadata):
+    try:
+        the_x = np.array([geo_metadata['x_min'], geo_metadata['imsize_x_pix']], dtype=float)
+        the_lon = np.array([geo_metadata['lon_min'], geo_metadata['lon_max']], dtype=float)
+    except KeyError as e:
+        # missing data for the converstion to lat / lon
+        raise MissingCoordinateMetadata(str(e))
+
+    # setup interpolation functions to get the lat / lon from pixel marks
+    # don't throw an error if the coords are out of bounds, but also don't extrapolate
+    f_x_lon = interp1d(the_x, the_lon, bounds_error=False, fill_value=(None, None))
+
+    return f_x_lon(marks)
 
 # get the task lables matching a regex from the task list
 def get_task_tool_num_and_label_tuples(label_function, regex, headers, known_labels):
@@ -232,15 +262,13 @@ subjects_dict = {}
 # keep ram down use cols of interest and chunks
 chunksize = 10 ** 6
 for subjects_chunk in pd.read_csv(subjects_metadata_file, usecols=['subject_id', 'metadata'], chunksize=chunksize):
-    for index, row in subjects_chunk.iterrows():
+    for subjects_index, row in subjects_chunk.iterrows():
         subjects_dict[row['subject_id']] = ujson.loads(row['metadata'])
 
 print('Files loaded successfully')
 
 print('Converting marking tasks to lat / lon format')
 
-# new point lat lon headers
-point_column_new_headers = [ 'point_lon', 'point_lat' ]
 # subject metadata headers for recording original coords
 subject_metadata_orig_headers = [
     'lon_min', 'lon_max',
@@ -274,14 +302,12 @@ subtask_label_headers_orig = [header for header in headers_to_relabel if is_subt
 formatted_output_headers = base_column_headers \
     + [add_data_prefix(label) for label in point_task_label_headers] \
     + [add_data_prefix(label) for label in subtask_label_headers] \
-    + [add_data_prefix(label) for label in point_column_new_headers] \
     + subject_metadata_headers
 
 # construct a list of incoming headers that match the new output header orderings
 original_to_output_format_headers = base_column_headers \
     + point_task_labels_orig \
     + subtask_label_headers_orig \
-    + point_column_new_headers \
     + subject_metadata_orig_headers
 
 # create an index mapping to lookup extract row column headers to transformed output header columns
@@ -303,32 +329,8 @@ for i, row in classifications_points.iterrows():
             # frames than 0 & 1 (before and after) only right now.
             for frame_num in [0, 1]:
                 # find the pixel coords for any marking tool in this frame
-                point_task_tool_basename = "\A(data\.frame%s\.T\d_tool%s_)[xy]\Z" % (frame_num, tool)
+                point_task_tool_basename = "\A(data\.frame%s\.T\d_tool%s_)([xy])\Z" % (frame_num, tool)
                 point_task_tool_basename_re = re.compile(point_task_tool_basename, re.IGNORECASE)
-
-                found_point_tasks_pixels = {}
-                for row_header in original_header_to_output_index_map:
-                    matchObj = point_task_tool_basename_re.match(row_header)
-                    if matchObj:
-                        # skip empty data row values
-                        if pd.isnull(row[row_header]):
-                            continue
-
-                        frame_tool_basename = matchObj.group(1)
-                        frame_tool_x_key = frame_tool_basename + 'x'
-                        frame_tool_y_key = frame_tool_basename + 'y'
-                        pixel_coords = {}
-                        try:
-                            # Load the pixel location data from extracts
-                            pixel_coords['x'] = ujson.loads(row[frame_tool_x_key])
-                            pixel_coords['y'] = ujson.loads(row[frame_tool_y_key])
-                            # convert the x,y to lat/long coords using subject geo metadata
-                            (lon, lat) = get_lat_lon_coords_from_pixels(pixel_coords, subject_geo_metadata)
-                            found_point_tasks_pixels[frame_tool_x_key] = lon
-                            found_point_tasks_pixels[frame_tool_y_key] = lat
-                        except KeyError:
-                            found_point_tasks_pixels[frame_tool_x_key] = None
-                            found_point_tasks_pixels[frame_tool_y_key] = None
 
                 # now convert the data from original to new output format
                 reformatted_row = [None] * len(original_header_to_output_index_map)
@@ -347,36 +349,71 @@ for i, row in classifications_points.iterrows():
                     # else:
                     # detail = ''
 
-                    if row_header == 'point_lon':
-                        pdb.set_trace()
+                    # convert the point / subject data we have to the new output format
+                    pointToolMatchObj = point_task_tool_basename_re.match(row_header)
+                    if pointToolMatchObj:
+                        # Load the pixel location data from extracts
+                        pixel_coord_values = row[row_header]
+                        # skip empty data row values
+                        if pd.isnull(pixel_coord_values):
+                            # leave the value as the reformatted_row default set above
+                            continue
 
-                    if row_header in point_column_new_headers:
-                        if len(found_point_tasks_pixels) == 0:
-                            reformatted_row[output_index] = []
-                        else
-                            pdb.set_trace()
-                            reformatted_row[output_index] = found_point_tasks_pixels[row_header]
+                # TODO: Working on formatting the list of points for each task tool correctly
+                # then when we've got a fully formatted new row
+                # we can look at splitting it so each multi point entry
+                # has it's own row to avoid embedding json arrays, nested data
+                # into a single row of csv
 
-                    elif row_header in subject_metadata_headers:
-                        reformatted_row[output_index] = subject_metadata_orig_headers[row_header]
+                # classificatoin index 13 has point data  to test
+                # if i == 13:
+                #     pdb.set_trace()
+
+                        # convert from string to json (data is in array format)
+                        pixel_coord_values = [float(i) for i in ujson.loads(pixel_coord_values)]
+                        # convert the x,y to lat/long coord using subject geo metadata
+                        pixel_coord_type = pointToolMatchObj.group(2)
+                        if pixel_coord_type == 'x':
+                            reformatted_row[output_index] = get_lon_coords_from_pixels(pixel_coord_values, subject_geo_metadata)
+                        elif pixel_coord_type == 'y':
+                            reformatted_row[output_index] = get_lat_coords_from_pixels(pixel_coord_values, subject_geo_metadata)
+                        else:
+                            raise ValueError('Unknown pixel coord value type (not x/y) for found %' % row)
+
+                    elif row_header in subject_metadata_orig_headers:
+                        reformatted_row[output_index] = subject_geo_metadata[row_header]
                     else:
                         reformatted_row[output_index] = row[row_header]
-
-                    points_temp.append(reformatted_row)
-
-        if i % 100 == 0:
-            print('Points done: ' + f"{i:,d}", end='\r')
 
     except MissingCoordinateMetadata as e:
         # skip the data set conversion for all points
         print("Missing subject metadata: %s\nCan't convert this data set, quiting." % str(e))
         sys.exit(os.EX_DATAERR)
 
+    # store the row once we have reformatted the row into the new column headers
+    # this will be used latter to output the newly formatted data
+
+    # TODO: once we are here we can split each multi mark (other) task to multiple rows
+    # of data before we insert into the temp list
+    # e.g.
+    # data.frame1.T0_tool3_details    [[{'2': 1}], [{'2': 1}]]
+    # data.frame1.T0_tool3_x          [531.296875, 539.296875]
+    # data.frame1.T0_tool3_y                  [326.75, 188.75]
+    # would create 2 rows of data with no arrays' nested objects in them
+
+    points_temp.append(reformatted_row)
+
+    if i % 100 == 0:
+        # pdb.set_trace()
+        print('Rows done: ' + f"{i:,d}", end='\r')
+
 num_points_processed = len(points_temp)
 print('Points done: ' + f"{num_points_processed:,d}")
 
 pdb.set_trace()
 
+# use pandas series vs python list appending to dataframe to avoid the conversion costs
+# here
 points_outfile_df = pd.DataFrame(points_temp, columns=formatted_output_headers)
 input_file_name = os.path.basename(point_annotations_file)
 output_filename = output_file_path(input_file_name)
