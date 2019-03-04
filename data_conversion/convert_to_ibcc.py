@@ -89,36 +89,6 @@ output_data_dir = os.path.join(output_dir, 'ibcc')
 if not os.path.exists(output_data_dir):
     os.mkdir(output_data_dir)
 
-def get_lat_lon_coords_from_pixels(pixel_coords, geo_metadata):
-    # ensure the coords are floats
-    marks_x = [float(i) for i in pixel_coords['x']]
-    marks_y = [float(i) for i in pixel_coords['y']]
-
-    # TODO: look at how we can use other information to determine the
-    # lat / lon extents for use t determine the lat / lon from pixel coords
-    # attempt to use corner lat lon_max
-    # https://github.com/vrooje/Data-digging/blob/1eece78c0f4dfc6b700e3f631d37681b6a8b7bf6/example_scripts/planetary_response_network/caribbean_irma_2017/extract_markings_to1file.py#L242
-    # OR conform to what metadata we will use going forward, see the tiling convert_tiles_to_jpg.py
-
-    try:
-        the_x = np.array([geo_metadata['x_min'], geo_metadata['imsize_x_pix']], dtype=float)
-        the_y = np.array([geo_metadata['y_min'], geo_metadata['imsize_y_pix']], dtype=float)
-        the_lon = np.array([geo_metadata['lon_min'], geo_metadata['lon_max']], dtype=float)
-        the_lat = np.array([geo_metadata['lat_min'], geo_metadata['lat_max']], dtype=float)
-    except KeyError as e:
-        # missing data for the converstion to lat / lon
-        raise MissingCoordinateMetadata(str(e))
-
-    # setup interpolation functions to get the lat / lon from pixel marks
-    # don't throw an error if the coords are out of bounds, but also don't extrapolate
-    f_x_lon = interp1d(the_x, the_lon, bounds_error=False, fill_value=(None, None))
-    f_y_lat = interp1d(the_y, the_lat, bounds_error=False, fill_value=(None, None))
-
-    lon = f_x_lon(marks_x)
-    lat = f_y_lat(marks_y)
-
-    return lon, lat
-
 def get_lat_coords_from_pixels(marks, geo_metadata):
     try:
         the_y = np.array([geo_metadata['y_min'], geo_metadata['imsize_y_pix']], dtype=float)
@@ -324,6 +294,12 @@ for i, row in classifications_points.iterrows():
     subject_geo_metadata['x_min'] = 1
     subject_geo_metadata['y_min'] = 1
 
+    # setup a place holder variable for the formatted output row data
+    reformatted_row = None
+    # keep a list of each rows nested array / json data indexes
+    # we'll use this to explode the data into mutliple rows
+    nested_column_data_indexes = None
+
     try:
         for (tool, name) in get_unique_point_task_tuples(row.axes[0], task_labels_dict):
             # frames than 0 & 1 (before and after) only right now.
@@ -332,22 +308,11 @@ for i, row in classifications_points.iterrows():
                 point_task_tool_basename = "\A(data\.frame%s\.T\d_tool%s_)([xy])\Z" % (frame_num, tool)
                 point_task_tool_basename_re = re.compile(point_task_tool_basename, re.IGNORECASE)
 
-                # now convert the data from original to new output format
+                # do not pollute old row data to new rows
                 reformatted_row = [None] * len(original_header_to_output_index_map)
+                nested_column_data_indexes = {}
+                # now convert the data from original to new output format
                 for row_header, output_index in original_header_to_output_index_map.items():
-
-                    # handle subtasks
-                    # if row_header in subtask_label_headers_orig:
-                    #     pdb.set_trace()
-                        # detail_list = ujson.eval(row[basename + 'details'])
-                    #     for j in range(len(lon)):
-                    #         detail = list(detail_list[j][0])[0]
-                    #         if detail == 'None':
-                    #             detail = 'Unspecified'
-                    #         else:
-                    #             detail = details[int(detail)]
-                    # else:
-                    # detail = ''
 
                     # convert the point / subject data we have to the new output format
                     pointToolMatchObj = point_task_tool_basename_re.match(row_header)
@@ -359,18 +324,9 @@ for i, row in classifications_points.iterrows():
                             # leave the value as the reformatted_row default set above
                             continue
 
-                # TODO: Working on formatting the list of points for each task tool correctly
-                # then when we've got a fully formatted new row
-                # we can look at splitting it so each multi point entry
-                # has it's own row to avoid embedding json arrays, nested data
-                # into a single row of csv
-
-                # classificatoin index 13 has point data  to test
-                # if i == 13:
-                #     pdb.set_trace()
-
                         # convert from string to json (data is in array format)
                         pixel_coord_values = [float(i) for i in ujson.loads(pixel_coord_values)]
+
                         # convert the x,y to lat/long coord using subject geo metadata
                         pixel_coord_type = pointToolMatchObj.group(2)
                         if pixel_coord_type == 'x':
@@ -382,6 +338,48 @@ for i, row in classifications_points.iterrows():
 
                     elif row_header in subject_metadata_orig_headers:
                         reformatted_row[output_index] = subject_geo_metadata[row_header]
+
+                    elif row_header in subtask_label_headers_orig:
+                        # TODO: unpack the subtask values
+                        subtask_value = row[row_header]
+                        if pd.isnull(subtask_value):
+                            # leave the value as the reformatted_row default set above
+                            continue
+
+                        # wtf!? single quotes is non-valid json in subtasks...
+                        # subtasks are the worst :(
+                        subtask_value = str(subtask_value).replace("'", '"')
+                        subtask_json = ujson.loads(subtask_value)
+
+                        # unpack the subtasks annotation values
+                        # each point gets a subtask annotation, e.g. for 3 points
+                        # the data can look like a list of subtask annotation payloads
+                        # [ [{'None': 1}], [{'2': 1}], [{'2': 1}] ]
+                        # [  point 1     , point 2   , point 3    ]
+                        subtask_annotation_labels = []
+                        for question in subtask_json:
+                            for annotation in question:
+                                # Note: only handle question subtasks right now
+                                # get label key from the annotation
+
+                                annotation_keys = [ key for key in annotation ]
+                                # Note: only 1 subtask question per mark right now
+                                subtask_label = annotation_keys[0]
+                # TODO: here we have to lookup the subtask label, e.g. '2'
+                # to the actual subtask tool label from the workflow_contents
+                # from the task_labels_dict for the relevent label
+                                if subtask_label == 'None'
+                                    subtask_annotation_labels.append(subtask_label)
+
+                                if i == 32:
+                                    pdb.set_trace()
+
+                        #     detail = list(detail_list[j][0])[0]
+                        #     if detail == 'None':
+                        #         detail = 'Unspecified'
+                        #     else:
+                        #         detail = details[int(detail)]
+
                     else:
                         reformatted_row[output_index] = row[row_header]
 
@@ -392,15 +390,11 @@ for i, row in classifications_points.iterrows():
 
     # store the row once we have reformatted the row into the new column headers
     # this will be used latter to output the newly formatted data
-
-    # TODO: once we are here we can split each multi mark (other) task to multiple rows
-    # of data before we insert into the temp list
-    # e.g.
-    # data.frame1.T0_tool3_details    [[{'2': 1}], [{'2': 1}]]
-    # data.frame1.T0_tool3_x          [531.296875, 539.296875]
-    # data.frame1.T0_tool3_y                  [326.75, 188.75]
-    # would create 2 rows of data with no arrays' nested objects in them
-
+    #
+    # Note: reformatted_row contains python lists for mutliple point coords for
+    # any given marking tool, the same as the aggregation for caesar data exports
+    # if this is a problem downstream, then here is where reformatted_row would
+    # be unwound on each point tool to explode out the nested data to multiple rows
     points_temp.append(reformatted_row)
 
     if i % 100 == 0:
