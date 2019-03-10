@@ -264,9 +264,9 @@ subjects_dict = {}
 # Make subject dictionary with id as key and metadata
 # keep ram down use cols of interest and chunks
 chunksize = 10 ** 6
-# for subjects_chunk in pd.read_csv(subjects_metadata_file, usecols=['subject_id', 'metadata'], chunksize=chunksize):
-#     for subjects_index, row in subjects_chunk.iterrows():
-#         subjects_dict[row['subject_id']] = ujson.loads(row['metadata'])
+for subjects_chunk in pd.read_csv(subjects_metadata_file, usecols=['subject_id', 'metadata'], chunksize=chunksize):
+    for subjects_index, row in subjects_chunk.iterrows():
+        subjects_dict[row['subject_id']] = ujson.loads(row['metadata'])
 
 print('Files loaded successfully')
 
@@ -305,8 +305,6 @@ subtask_question_nums = point_subtask_question_nums(task_labels_dict)
 # get the header columns for the point task subtasks
 subtask_label_headers = point_subtask_label_headers(extract_file_headers, task_labels_dict, subtask_question_nums)
 subtask_label_headers_orig = [header for header in headers_to_relabel if is_subtask_header(header)]
-
-pdb.set_trace()
 
 # construct a new list of formatted labels for the output column ordering
 formatted_output_headers = base_column_headers \
@@ -380,14 +378,16 @@ for i, row in classifications_points.iterrows():
                         reformatted_row[output_index] = subject_geo_metadata[row_header]
 
                     elif row_header in subtask_label_headers_orig:
-                        # TODO: unpack the subtask values
                         subtask_value = row[row_header]
                         if pd.isnull(subtask_value):
                             # leave the value as the reformatted_row default set above
                             continue
 
-                        # wtf!? single quotes is non-valid json in subtasks...
-                        # subtasks are the worst :(
+                        # retrieve this task:tool subtask lookup key
+                        # for the subtask answer labels
+                        task_tool_subtask_lookup = row_header.split('.')[-1]
+
+                        # extractor subtask lists strings are single quotes and non-valid json
                         subtask_value = str(subtask_value).replace("'", '"')
                         subtask_json = ujson.loads(subtask_value)
 
@@ -395,31 +395,34 @@ for i, row in classifications_points.iterrows():
                         # each point gets a subtask annotation, e.g. for 3 points
                         # the data can look like a list of subtask annotation payloads
                         # [ [{'None': 1}], [{'2': 1}], [{'2': 1}] ]
-                        # [  point 1     , point 2   , point 3    ]
+                        # [ [point 1   ]. [point 2], [ point 3]
+                        # and each [point 1] can contain multiple subtask answers
+                        # [{subtask_1_answer}, {subtask_2_answer}, ...]
                         subtask_annotation_labels = []
-                        for question in subtask_json:
-                            for annotation in question:
-                                # Note: only handle question subtasks right now
-                                # get label key from the annotation
+                        for point_subtask_answers in subtask_json:
+                            for subtask_num, subtask_answers in enumerate(point_subtask_answers):
+                                # Note: only handle question subtasks right now, not marking, etc
+                                per_point_subtask_answer_labels = []
+                                # get the answer label key from the answer dict
+                                for answer_label in subtask_answers.keys():
+                                    if answer_label == 'None':
+                                        # 'None' here corresponds to no subtask value for this point
+                                        continue
 
-                                annotation_keys = [ key for key in annotation ]
-                                # Note: only 1 subtask question per mark right now
-                                subtask_label = annotation_keys[0]
-                # TODO: here we have to lookup the subtask label, e.g. '2'
-                # to the actual subtask tool label from the workflow_contents
-                # from the task_labels_dict for the relevent label
-                                if subtask_label == 'None':
-                                    # 'None' here corresponds to no subtask value for this point
-                                    subtask_annotation_labels.append(None)
+                                    # construct the tool num subtask question lookup key
+                                    subtask_answer_label_lookup = task_tool_subtask_lookup + "_%s" % subtask_num
+                                    # get the subtask answer label
+                                    subtask_answer_label = subtask_value_label_lookup[subtask_answer_label_lookup][answer_label]
+                                    per_point_subtask_answer_labels.append(subtask_answer_label)
 
-                                if i == 32:
-                                    pdb.set_trace()
 
-                        #     detail = list(detail_list[j][0])[0]
-                        #     if detail == 'None':
-                        #         detail = 'Unspecified'
-                        #     else:
-                        #         detail = details[int(detail)]
+                            # combine the per point annotation labels
+                            # for each subtask answer, using ; delimiters here
+                            # to avoid clashes with the ',' csv delim
+                            subtask_annotation_labels.append(';'.join(per_point_subtask_answer_labels))
+
+                        if i == 32:
+                            pdb.set_trace()
 
                     else:
                         reformatted_row[output_index] = row[row_header]
