@@ -162,24 +162,24 @@ def format_task_label(label):
     hyphenated_label = label_lines[0].replace(" ", "-")
     return hyphenated_label.lower()
 
-def point_subtask_label_headers(headers, known_task_labels):
+def point_subtask_label_headers(headers, known_task_labels, subtask_question_nums):
     subtask_labels = []
     subtask_lable_re = re.compile('\Adata\.frame\d\.(.+)_.+(\d)_details\Z', re.IGNORECASE)
     subtask_label_frame_re = re.compile('\Adata\.(frame)(\d)\..+_details\Z', re.IGNORECASE)
-    # NOTE: Not sure if there are more than 1 subtasks per tool, if so the 0 key will increment.
-    label_constructor = lambda task_key, tool_num: "%s.tools.%s.details.0.question" % (task_key, tool_num)
     for header in headers:
-        subtask_label_tuples = get_task_tool_num_and_label_tuples(label_constructor, subtask_lable_re, [header], known_task_labels)
-        # skip point headers (subtasks) that don't match the format
-        if len(subtask_label_tuples) == 0:
-            continue
-
         matchObj = subtask_label_frame_re.match(header)
-        label_frame_prefix = "%s.%s" % (matchObj.group(1), matchObj.group(2))
+        if matchObj:
+            for subtask_q_num in subtask_question_nums:
+                label_template = "%s.tools.%s." + "details.%s.question" % subtask_q_num
+                # use a lambda with the bound label_template above to inject the task lookup key
+                label_constructor = lambda task_key, tool_num, label_template=label_template: label_template % (task_key, tool_num)
+                subtask_label_tuples = get_task_tool_num_and_label_tuples(label_constructor, subtask_lable_re, [header], known_task_labels)
 
-        _, subtask_question_label = subtask_label_tuples[0]
-        formatted_subtask_label = "%s.%s" % (label_frame_prefix, format_task_label(subtask_question_label))
-        subtask_labels.append(formatted_subtask_label)
+                label_frame_prefix = "%s.%s" % (matchObj.group(1), matchObj.group(2))
+
+                _, subtask_question_label = subtask_label_tuples[0]
+                formatted_subtask_label = "%s.%s" % (label_frame_prefix, format_task_label(subtask_question_label))
+                subtask_labels.append(formatted_subtask_label)
 
     return subtask_labels
 
@@ -203,6 +203,19 @@ def get_point_task_label_headers(headers, known_labels):
         task_label_headers.append(formatted_point_label)
 
     return task_label_headers
+
+def point_subtask_question_nums(task_labels_dict):
+    subtask_question_nums = {}
+    subtask_label_re = re.compile('\AT\d\.tools\.\d\.details\.(\d)\..+\Z', re.IGNORECASE)
+    for label in task_labels_dict.keys():
+        matchObj = subtask_label_re.match(label)
+        if matchObj:
+            subtask_question_nums[matchObj.group(1)] = True
+
+    # convert the unique dict keys to a list
+    subtask_question_nums = [*subtask_question_nums]
+    return subtask_question_nums
+
 
 def add_data_prefix(label):
     return "%s.%s" % ('data', label)
@@ -264,8 +277,9 @@ point_task_labels_orig = [header for header in headers_to_relabel if not is_subt
 base_column_headers = [header for header in extract_file_headers if header not in headers_to_relabel]
 # base_header_index_lookup = [(header, formatted_output_headers.index(header)) for header in base_column_headers]
 
+subtask_question_nums = point_subtask_question_nums(task_labels_dict)
 # get the header columns for the point task subtasks
-subtask_label_headers = point_subtask_label_headers(extract_file_headers, task_labels_dict)
+subtask_label_headers = point_subtask_label_headers(extract_file_headers, task_labels_dict, subtask_question_nums)
 subtask_label_headers_orig = [header for header in headers_to_relabel if is_subtask_header(header)]
 
 # construct a new list of formatted labels for the output column ordering
