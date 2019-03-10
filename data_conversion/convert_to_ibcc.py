@@ -204,18 +204,38 @@ def get_point_task_label_headers(headers, known_labels):
 
     return task_label_headers
 
+def point_subtask_labels(task_labels_dict):
+    subtask_label_lookups = {}
+    # with all answers as array labels [ subtask, answer, labels]
+    # ?? How to gaurantee question task ordering of input keys??
+    # ?? Assume the data will always be in order from YAML load ?? - Ensure we create the list of key orders correctly
+    subtask_label_re = re.compile('\A(T\d)\.tools\.(\d)\.details\.(\d)\.answers\.(\d).label\Z', re.IGNORECASE)
+    for answer_key, answer_label in task_labels_dict.items():
+        matchObj = subtask_label_re.match(answer_key)
+        if matchObj:
+            task_num = matchObj.group(1)
+            tool_num = matchObj.group(2)
+            subtask_num = matchObj.group(3)
+            # construct the label lookup key for the extractor data row
+            # e.g. T0.tools.3.details.0.answers.0.label turns to T0_tool3_details_0
+            subtask_question_lookup_label = "%s_tool%s_details_%s" % (task_num, tool_num, subtask_num)
+            # ensure we can lookup which subtask question label correctly
+            subtask_question_num = matchObj.group(4)
+            # store the answer labels for their subtask lookup key
+            subtask_question_answers = subtask_label_lookups.setdefault(subtask_question_lookup_label,{})
+            subtask_question_answers[subtask_question_num] = answer_label
+
+    return subtask_label_lookups
+
 def point_subtask_question_nums(task_labels_dict):
-    subtask_question_nums = {}
+    subtask_question_nums = set()
     subtask_label_re = re.compile('\AT\d\.tools\.\d\.details\.(\d)\..+\Z', re.IGNORECASE)
     for label in task_labels_dict.keys():
         matchObj = subtask_label_re.match(label)
         if matchObj:
-            subtask_question_nums[matchObj.group(1)] = True
+            subtask_question_nums.add(matchObj.group(1))
 
-    # convert the unique dict keys to a list
-    subtask_question_nums = [*subtask_question_nums]
     return subtask_question_nums
-
 
 def add_data_prefix(label):
     return "%s.%s" % ('data', label)
@@ -244,9 +264,9 @@ subjects_dict = {}
 # Make subject dictionary with id as key and metadata
 # keep ram down use cols of interest and chunks
 chunksize = 10 ** 6
-for subjects_chunk in pd.read_csv(subjects_metadata_file, usecols=['subject_id', 'metadata'], chunksize=chunksize):
-    for subjects_index, row in subjects_chunk.iterrows():
-        subjects_dict[row['subject_id']] = ujson.loads(row['metadata'])
+# for subjects_chunk in pd.read_csv(subjects_metadata_file, usecols=['subject_id', 'metadata'], chunksize=chunksize):
+#     for subjects_index, row in subjects_chunk.iterrows():
+#         subjects_dict[row['subject_id']] = ujson.loads(row['metadata'])
 
 print('Files loaded successfully')
 
@@ -277,10 +297,16 @@ point_task_labels_orig = [header for header in headers_to_relabel if not is_subt
 base_column_headers = [header for header in extract_file_headers if header not in headers_to_relabel]
 # base_header_index_lookup = [(header, formatted_output_headers.index(header)) for header in base_column_headers]
 
+# construct lookup table subtask label details
+subtask_value_label_lookup = point_subtask_labels(task_labels_dict)
+# get the num keys of all point subtasks
 subtask_question_nums = point_subtask_question_nums(task_labels_dict)
+
 # get the header columns for the point task subtasks
 subtask_label_headers = point_subtask_label_headers(extract_file_headers, task_labels_dict, subtask_question_nums)
 subtask_label_headers_orig = [header for header in headers_to_relabel if is_subtask_header(header)]
+
+pdb.set_trace()
 
 # construct a new list of formatted labels for the output column ordering
 formatted_output_headers = base_column_headers \
@@ -382,8 +408,9 @@ for i, row in classifications_points.iterrows():
                 # TODO: here we have to lookup the subtask label, e.g. '2'
                 # to the actual subtask tool label from the workflow_contents
                 # from the task_labels_dict for the relevent label
-                                if subtask_label == 'None'
-                                    subtask_annotation_labels.append(subtask_label)
+                                if subtask_label == 'None':
+                                    # 'None' here corresponds to no subtask value for this point
+                                    subtask_annotation_labels.append(None)
 
                                 if i == 32:
                                     pdb.set_trace()
