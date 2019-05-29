@@ -1,7 +1,6 @@
 '''
 
-create_manifest.py takes the before and after tile csv files and combines them to a single
-zooniverse upload csv manifest for use by the panoptes cli subject uploader
+upload_manifest.py restarable uploader to the zooniverse for tiled image csv manifests
 
 '''
 
@@ -17,7 +16,7 @@ default_batch_size = os.environ.get('BATCH_SIZE',10)
 default_marshal_dir = os.environ.get('MARSHAL_DIR','marshal_dir')
 tiled_data_dir = os.environ.get('DATA_OUT_DIR','outputs/')
 
-parser = argparse.ArgumentParser(description='Create a tiled image data csv manifest to upload subjects to the Zooniverse.')
+parser = argparse.ArgumentParser(description='Restartable csv subject manifest uploader to the Zooniverse.')
 parser.add_argument('--marshal-dir', dest='marshal_dir', default=default_marshal_dir, help='the directory to marshal the file uploads from')
 parser.add_argument('--batch-size', dest='batch_size', default=default_batch_size, help='the number of subjects to attempt to upload at once')
 parser.add_argument('--admin-mode', dest='admin_mode', default=False, help='run the Zooniverse CLI in admin mode')
