@@ -6,6 +6,6 @@ WORKDIR /tprn_data
 
 RUN pip install --upgrade pip
 RUN pip install -U ujson
-RUN pip install -U git+git://github.com/zooniverse/aggregation-for-caesar.git@seperate-shortcut-tasks
+RUN pip install -U panoptes_aggregation
 
 ADD ./ /tprn_manifest
