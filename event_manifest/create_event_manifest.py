@@ -7,9 +7,11 @@ stored creates a json file
 
 This information includes:
 1. Event name and Region of interest (ROI) bounding box coordinates
-2. Before and after source GeoTIFF imagery locations in s3 and the provider information
-3. The Zooniverse project and subject set to upload the tiled data into
-4. S3 bucket and path details for storing data products created by the PRN pipeline E.G. extracted and formatted raw classifcation data for use by IBCC code
+3. The Zooniverse project for the event repsonse
+4. S3 bucket and path details for storing data products created by the PRN pipeline for:
+    + Manifest files
+    + extracted and formatted raw classifcation data for use by IBCC code
+    + IBCC data producs for maps UI
 '''
 
 import sys, os, io, json, datetime
@@ -74,27 +76,9 @@ else:
     # bbox = left,bottom,right,top
     data['bounding_box_coords'] = [ west_longitude, south_latitude, east_longitude, north_latitude ]
 
-    input_header("Source before & after event imagery details")
-    before_image_file_name = input('What is file name of the before GeoTIFF image? ')
-    before_image_provider = input('Who is the before image provider? (choose one of: dg, planet, sentinel, landsat) ')
-    after_image_file_name = input('What is file name of the after GeoTIFF image? ')
-    after_image_provider = input('Who is the after image provider? (choose one of: dg, planet, sentinel, landsat) ')
-
-    data['geotiff_source_imagery'] = {
-        "before_image_file_name": before_image_file_name,
-        "before_image_provider" : before_image_provider,
-        "after_image_file_name" : after_image_file_name,
-        "after_image_provider"  : after_image_provider
-    }
-
-    input_header("Zooniverse project and subject set ids")
+    input_header("Zooniverse project id")
     zoo_project_id = string_to_num(input('What is the tPRN Zooniverse project id? '))
-    zoo_subject_set_id = string_to_num(input('What is the tPRN Zooniverse subject_set_id to upload data into? '))
-
-    data['zooniverse_metadata'] = {
-        "project_id": zoo_project_id,
-        "subject_set_id": zoo_subject_set_id
-    }
+    data['zooniverse_metadata'] = { "project_id": zoo_project_id }
 
     input_header("S3 bucket name and path details for this event")
     s3_bucket_name = input('Name of the s3 bucket to store data in? (default to planetary-response-network) ') or "planetary-response-network"
@@ -115,7 +99,7 @@ s3_upload_location = 's3://' + s3_bucket_name + '/manifests/' + event_name + '.j
 
 input_header('Upload the manifest to s3')
 try:
-    if bool(os.environ.get('DRY_UPLOAD', "False")):
+    if bool(os.environ.get('DRY_UPLOAD', "")):
         s3_cp_cmd = "aws s3 cp --dryrun"
     else:
         s3_cp_cmd = "aws s3 cp"
