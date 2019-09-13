@@ -9,8 +9,9 @@ import os
 WORKFLOW_FILE = 'workflows.csv'
 DATA_OUT_DIR = 'outputs'
 DATA_IN_DIR = 'inputs'
-EPS = 0.001
-MIN_SAMPLES = 3
+EPS_METERS = 50  # clustering size in meters
+EPS = EPS_METERS / 78710  # 1 deg ~= 78710 m
+MIN_SAMPLES = 3  # number of points needed to form a cluster
 
 config_dir = os.path.join(DATA_OUT_DIR, 'config')
 if not os.path.isdir(config_dir):
