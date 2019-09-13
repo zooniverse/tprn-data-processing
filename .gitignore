@@ -5,3 +5,4 @@ tiling/outputs/*
 event_manifest/outputs/*
 data_conversion/inputs/*
 data_conversion/outputs/*
+data_conversion/__pycache__
